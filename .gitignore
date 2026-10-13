@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Python virtual environment
+.venv/
+*/.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Environment & Secret files
+.env
+*/.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+.next/
+
+# OS & Editor files
+.DS_Store
+.vscode/
+.idea/

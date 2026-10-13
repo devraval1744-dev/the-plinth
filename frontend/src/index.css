@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-cream-200 text-navy-900 font-sans;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-navy-700 text-cream-100 hover:bg-navy-800 focus:ring-navy-500 shadow-sm;
+  }
+
+  .btn-secondary {
+    @apply btn bg-transparent text-navy-700 border border-navy-300 hover:bg-navy-50 focus:ring-navy-400;
+  }
+
+  .btn-gold {
+    @apply btn bg-gold-500 text-white hover:bg-gold-600 focus:ring-gold-400 shadow-sm;
+  }
+
+  .btn-danger {
+    @apply btn bg-danger text-white hover:bg-red-700 focus:ring-red-400;
+  }
+
+  .btn-lg {
+    @apply px-7 py-3.5 text-base;
+  }
+
+  /* ── Form inputs ─────────────────────────────────────────── */
+  .input {
+    @apply block w-full rounded-lg border border-navy-200 bg-white px-4 py-2.5 text-navy-900 text-sm placeholder-navy-400
+           focus:border-navy-500 focus:outline-none focus:ring-2 focus:ring-navy-300 transition-colors duration-150;
+  }
+
+  .input-error {
+    @apply border-danger focus:border-danger focus:ring-red-200;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-navy-700 mb-1;
+  }
+
+  .field-error {
+    @apply text-xs text-danger mt-1;
+  }
+
+  /* ── Cards ───────────────────────────────────────────────── */
+  .card {
+    @apply bg-white rounded-xl shadow-card border border-navy-100;
+  }
+
+  .card-hover {
+    @apply card hover:shadow-card-hover transition-shadow duration-200 cursor-pointer;
+  }
+
+  /* ── Page layout ─────────────────────────────────────────── */
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .section-title {
+    @apply font-display text-2xl font-semibold text-navy-800;
+  }
+
+  /* ── Badges ──────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-100 text-red-700;
+  }
+
+  .badge-navy {
+    @apply badge bg-navy-100 text-navy-700;
+  }
+
+  /* ── Price typography ────────────────────────────────────── */
+  /* Clean sans-serif treatment for all property price displays.
+     Intentionally avoids font-display (Playfair) — prices need
+     to read as data, not decoration. Inter at weight 600 with
+     tight tracking gives a premium, modern financial feel. */
+  .price-text {
+    @apply font-sans font-semibold tracking-tight text-navy-900;
+  }
+
+  .price-text-lg {
+    @apply price-text text-xl sm:text-2xl;
+  }
+
+  .price-text-sm {
+    @apply price-text text-sm;
+  }
+
+  .price-text-xs {
+    @apply price-text text-xs;
+  }
+}
