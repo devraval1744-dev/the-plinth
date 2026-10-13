@@ -71,6 +71,13 @@ export async function getPublicPropertyApi(id: string): Promise<Property> {
   return res.data.data!.property;
 }
 
+export async function getNearbyAmenitiesApi(id: string, radius = 3): Promise<import('../types').NearbyAmenitiesData> {
+  const res = await apiClient.get<ApiResponse<import('../types').NearbyAmenitiesData>>(`/properties/${id}/nearby-amenities`, {
+    params: { radius },
+  });
+  return res.data.data!;
+}
+
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
 export async function adminGetPropertyStatsApi(): Promise<PropertyCounts> {

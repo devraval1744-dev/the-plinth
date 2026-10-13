@@ -121,3 +121,42 @@ export async function getPublicProperty(req: Request, res: Response, next: NextF
     res.status(200).json({ success: true, data: { property } });
   } catch (err) { next(err); }
 }
+
+// GET /api/properties/:id/nearby-amenities (public for approved properties, respects snapshot)
+export async function getNearbyAmenities(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    // 1. Confirm property is visible to public under existing approval & snapshot rules
+    const property = await PropertyService.getPublicProperty(req.params.id);
+
+    // 2. Check if coordinates are present on the visible property record
+    const lat = property.latitude;
+    const lng = property.longitude;
+
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      res.status(200).json({
+        success: true,
+        data: {
+          hasCoordinates: false,
+          amenities: [],
+          counts: { education: 0, healthcare: 0, shopping: 0, transit: 0, total: 0 },
+          message: 'Location coordinates not specified for this property yet.',
+        },
+      });
+      return;
+    }
+
+    // 3. Fetch nearby amenities using Overpass API with caching and distance calculation
+    const radiusKm = req.query.radius ? Number(req.query.radius) : 3;
+    const { fetchNearbyAmenities } = await import('../services/location.service');
+    const amenitiesData = await fetchNearbyAmenities(lat, lng, radiusKm);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        hasCoordinates: true,
+        ...amenitiesData,
+      },
+    });
+  } catch (err) { next(err); }
+}
+

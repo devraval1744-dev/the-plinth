@@ -150,6 +150,9 @@ router.delete(
   PropController.deleteProperty
 );
 
+// ─── GET /:id/nearby-amenities — public for APPROVED (respects snapshot) ───
+router.get('/:id/nearby-amenities', PropController.getNearbyAmenities);
+
 // ─── GET /:id — public for APPROVED, authenticated builder for own property ───
 // The controller logic differentiates via query param `?view=builder`
 router.get('/:id', async (req, res, next) => {

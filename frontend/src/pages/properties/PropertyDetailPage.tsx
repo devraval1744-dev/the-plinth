@@ -5,12 +5,13 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AlertMessage from '../../components/ui/AlertMessage';
 import BlueprintViewer from '../../components/blueprint/BlueprintViewer';
 import Blueprint3DViewer from '../../components/blueprint3d/Blueprint3DViewer';
-import { getPublicPropertyApi } from '../../api/properties.api';
+import PropertyAmenitiesMap from '../../components/location/PropertyAmenitiesMap';
+import { getPublicPropertyApi, getNearbyAmenitiesApi } from '../../api/properties.api';
 import { getPublicBlueprintsApi, getPublic3DApi } from '../../api/blueprints.api';
 import { getErrorMessage } from '../../api/client';
 import { formatPrice, formatDate, getBuilderName } from '../../utils/format';
 import { useAuth } from '../../context/AuthContext';
-import type { Property, BHKConfig, Blueprint, Public3DResult } from '../../types';
+import type { Property, BHKConfig, Blueprint, Public3DResult, NearbyAmenitiesData } from '../../types';
 
 export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +27,18 @@ export default function PropertyDetailPage() {
   const [selectedBpId, setSelectedBpId] = useState<string | null>(null);
   const [active3DId, setActive3DId] = useState<string | null>(null);
   const [threeDData, setThreeDData] = useState<Record<string, Public3DResult | 'loading' | 'error'>>({});
+  const [amenitiesData, setAmenitiesData] = useState<NearbyAmenitiesData | null>(null);
+  const [isAmenitiesLoading, setIsAmenitiesLoading] = useState(false);
+  const [amenitiesError, setAmenitiesError] = useState('');
+
+  const fetchNearby = (propertyId: string) => {
+    setIsAmenitiesLoading(true);
+    setAmenitiesError('');
+    getNearbyAmenitiesApi(propertyId)
+      .then((data) => setAmenitiesData(data))
+      .catch((err) => setAmenitiesError(getErrorMessage(err)))
+      .finally(() => setIsAmenitiesLoading(false));
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -42,6 +55,9 @@ export default function PropertyDetailPage() {
             if (firstProp) setSelectedBpId(null); // Start with no selection
           })
           .catch(() => { /* blueprints unavailable — not fatal */ });
+
+        // Fetch nearby amenities in parallel (non-blocking)
+        fetchNearby(id);
       })
       .catch((e) => setError(getErrorMessage(e)))
       .finally(() => setIsLoading(false));
@@ -390,6 +406,60 @@ export default function PropertyDetailPage() {
                 </div>
               </div>
             )}
+
+            {/* Nearby Amenities & Location Intelligence */}
+            <div className="card px-6 py-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-navy-800">
+                    Nearby Amenities & Location Intelligence
+                  </h2>
+                  <p className="text-xs text-navy-500 mt-0.5">
+                    Explore schools, healthcare, shopping, and transit around {property.projectName}
+                  </p>
+                </div>
+                {property.latitude && property.longitude && (
+                  <button
+                    onClick={() => fetchNearby(property._id)}
+                    disabled={isAmenitiesLoading}
+                    className="text-xs text-navy-600 hover:text-navy-900 font-medium underline disabled:opacity-50"
+                  >
+                    {isAmenitiesLoading ? 'Refreshing...' : '🔄 Refresh'}
+                  </button>
+                )}
+              </div>
+
+              {/* State handling */}
+              {isAmenitiesLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-2">
+                  <LoadingSpinner size="md" />
+                  <p className="text-xs text-navy-500">Retrieving nearby location data via OpenStreetMap...</p>
+                </div>
+              ) : amenitiesError ? (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-center space-y-2">
+                  <p className="text-xs text-red-700 font-medium">{amenitiesError}</p>
+                  <button
+                    onClick={() => fetchNearby(property._id)}
+                    className="btn btn-secondary text-xs px-3 py-1.5"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : !amenitiesData || !amenitiesData.hasCoordinates ? (
+                <div className="bg-cream-100 border border-navy-100 rounded-xl p-6 text-center space-y-1">
+                  <span className="text-2xl block mb-1">📍</span>
+                  <p className="text-sm font-medium text-navy-700">Property Location Pin Pending</p>
+                  <p className="text-xs text-navy-500 max-w-md mx-auto">
+                    The builder has not marked the exact map coordinates for this property yet. Address: {property.address}, {property.locality}, {property.city}.
+                  </p>
+                </div>
+              ) : (
+                <PropertyAmenitiesMap
+                  propertyName={property.projectName}
+                  data={amenitiesData}
+                />
+              )}
+            </div>
           </div>
 
           {/* ── Right column — sticky action card ─────────────────────────── */}
