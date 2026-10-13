@@ -52,11 +52,15 @@ function getCategoryBadgeClass(category: string) {
 interface PropertyAmenitiesMapProps {
   propertyName: string;
   data: NearbyAmenitiesData;
+  onRetry?: () => void;
+  isRefreshing?: boolean;
 }
 
 export default function PropertyAmenitiesMap({
   propertyName,
   data,
+  onRetry,
+  isRefreshing = false,
 }: PropertyAmenitiesMapProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedAmenityId, setSelectedAmenityId] = useState<string | null>(null);
@@ -205,9 +209,22 @@ export default function PropertyAmenitiesMap({
         </div>
 
         {data.isUnavailable ? (
-          <div className="bg-cream-100 border border-navy-200 rounded-xl p-5 text-center text-xs text-navy-600 space-y-1">
+          <div className="bg-cream-100 border border-navy-200 rounded-xl p-5 text-center text-xs text-navy-600 space-y-2">
             <p className="font-medium text-navy-800">Nearby facilities data temporarily unavailable</p>
-            <p className="text-navy-500">Public OpenStreetMap services are currently busy. You can use the Refresh button above to retry.</p>
+            <p className="text-navy-500">Public OpenStreetMap services are currently busy. You can use the button below to retry.</p>
+            {onRetry && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={isRefreshing}
+                  className="btn btn-secondary text-xs px-3 py-1.5 inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <span>🔄</span>
+                  <span>{isRefreshing ? 'Retrying...' : 'Retry Now'}</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : filteredAmenities.length === 0 ? (
           <div className="bg-cream-100 rounded-xl p-6 text-center text-sm text-navy-500">

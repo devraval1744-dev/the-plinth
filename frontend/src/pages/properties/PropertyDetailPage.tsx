@@ -457,6 +457,8 @@ export default function PropertyDetailPage() {
                 <PropertyAmenitiesMap
                   propertyName={property.projectName}
                   data={amenitiesData}
+                  onRetry={() => fetchNearby(property._id)}
+                  isRefreshing={isAmenitiesLoading}
                 />
               )}
             </div>
