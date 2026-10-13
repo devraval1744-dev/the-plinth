@@ -4,6 +4,7 @@ import Navbar from '../../../components/layout/Navbar';
 import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import AlertMessage from '../../../components/ui/AlertMessage';
 import PropertyStatusBadge from '../../../components/property/PropertyStatusBadge';
+import LocationPickerMap from '../../../components/location/LocationPickerMap';
 import {
   createPropertyApi,
   updatePropertyApi,
@@ -390,6 +391,20 @@ export default function PropertyFormPage() {
                 <input type="number" step="any" className="input" value={form.longitude}
                   onChange={set('longitude')} placeholder="72.5714" disabled={isReadOnly} />
               </Field>
+              <div className="sm:col-span-2 pt-2">
+                <LocationPickerMap
+                  latitude={form.latitude ? parseFloat(form.latitude) : null}
+                  longitude={form.longitude ? parseFloat(form.longitude) : null}
+                  onChange={(lat, lng) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      latitude: lat.toString(),
+                      longitude: lng.toString(),
+                    }));
+                  }}
+                  disabled={isReadOnly}
+                />
+              </div>
             </div>
           </Section>
 

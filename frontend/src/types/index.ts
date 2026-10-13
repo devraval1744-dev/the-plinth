@@ -487,3 +487,37 @@ export interface Public3DResult {
   isDemo:   boolean;
   provider: string;
 }
+
+// ─── Nearby Amenities / Location Intelligence ────────────────────────────────
+export interface NearbyAmenity {
+  id: string;
+  name: string;
+  category: 'education' | 'healthcare' | 'shopping' | 'transit';
+  categoryLabel: string;
+  latitude: number;
+  longitude: number;
+  distanceKm: number;
+  type: string;
+}
+
+export interface NearbyAmenitiesData {
+  hasCoordinates: boolean;
+  propertyCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  searchRadiusKm?: number;
+  amenities: NearbyAmenity[];
+  counts: {
+    education: number;
+    healthcare: number;
+    shopping: number;
+    transit: number;
+    total: number;
+  };
+  cached?: boolean;
+  attribution?: string;
+  isUnavailable?: boolean;
+  message?: string;
+}
+
