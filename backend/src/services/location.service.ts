@@ -64,7 +64,7 @@ export function calculateHaversineDistanceKm(
 // - Supports node and way elements
 // - Uses `out center` (WITHOUT the `tags` modifier, which in Overpass strips node lat/lon coordinates)
 function buildOverpassQuery(lat: number, lon: number, radiusMeters: number): string {
-  return `[out:json][timeout:6][maxsize:2097152];(
+  return `[out:json][timeout:12][maxsize:2097152];(
     node["amenity"~"hospital|clinic|pharmacy|school|college|university|bus_station"](around:${radiusMeters},${lat},${lon});
     way["amenity"~"school|college|university|hospital"](around:${radiusMeters},${lat},${lon});
     node["shop"~"supermarket|mall|convenience|department_store"](around:${radiusMeters},${lat},${lon});
@@ -120,138 +120,226 @@ function categorizeElement(tags: Record<string, string>): {
   return null;
 }
 
+// Promise deduplication map to prevent duplicate concurrent upstream requests for identical coordinates
+const pendingRequests = new Map<string, Promise<NearbyAmenitiesResponse>>();
+
 export async function fetchNearbyAmenities(
   latitude: number,
   longitude: number,
-  radiusKm = 3
+  radiusKm = 3,
+  propertyId?: string
 ): Promise<NearbyAmenitiesResponse> {
   const boundedRadiusKm = Math.min(Math.max(radiusKm, 1), 5);
   const cacheKey = `${latitude.toFixed(3)},${longitude.toFixed(3)}_${boundedRadiusKm}`;
-  const cached = cache.get(cacheKey);
   const now = Date.now();
 
+  // 1. Fast in-memory cache check
+  const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     return { ...cached.data, cached: true };
   }
 
-  const radiusMeters = Math.round(boundedRadiusKm * 1000);
-  const query = buildOverpassQuery(latitude, longitude, radiusMeters);
-
-  // Primary reliable global Overpass endpoint
-  const OVERPASS_ENDPOINT = 'https://overpass.openstreetmap.fr/api/interpreter';
-
-  let responseData: any = null;
-
-  try {
-    const response = await axios({
-      method: 'post',
-      url: OVERPASS_ENDPOINT,
-      data: query,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'text/plain',
-        'User-Agent': 'ThePlinthApp/1.0 (Ahmedabad; contact: devraval@theplinth.local)',
-      },
-      timeout: 10000,
-    });
-    if (response.data && Array.isArray(response.data.elements)) {
-      responseData = response.data;
-    }
-  } catch {
-    // If upstream times out or fails, gracefully fall back
+  // 2. Prevent concurrent identical requests from hammering upstream
+  const existingPending = pendingRequests.get(cacheKey);
+  if (existingPending) {
+    return existingPending;
   }
 
-  // Graceful fallback if Overpass servers are temporarily unavailable or overloaded
-  if (!responseData) {
-    const fallbackResponse: NearbyAmenitiesResponse = {
-      propertyCoordinates: { latitude, longitude },
-      searchRadiusKm: boundedRadiusKm,
-      amenities: [],
-      counts: {
-        education: 0,
-        healthcare: 0,
-        shopping: 0,
-        transit: 0,
-        total: 0,
-      },
-      cached: false,
-      attribution: 'Data © OpenStreetMap contributors. Overpass API temporarily unavailable.',
-      isUnavailable: true,
-      message: 'Nearby facilities are temporarily unavailable. Please try again later.',
+  const fetchPromise = (async () => {
+    const radiusMeters = Math.round(boundedRadiusKm * 1000);
+    const query = buildOverpassQuery(latitude, longitude, radiusMeters);
+
+    // Prioritized mirrors with bounded timeouts:
+    // Primary: overpass.openstreetmap.fr (consistently responds in 6-8s with full data)
+    // Fallback: overpass-api.de
+    const OVERPASS_ENDPOINTS = [
+      { url: 'https://overpass.openstreetmap.fr/api/interpreter', timeout: 10500 },
+      { url: 'https://overpass-api.de/api/interpreter', timeout: 3500 },
+    ];
+
+    let responseData: any = null;
+
+    for (const { url, timeout } of OVERPASS_ENDPOINTS) {
+      try {
+        const response = await axios({
+          method: 'post',
+          url,
+          data: query,
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'text/plain',
+            'User-Agent': 'ThePlinthApp/1.0 (Ahmedabad; contact: devraval@theplinth.local)',
+          },
+          timeout,
+        });
+
+        // Validate response:
+        // Overpass can return HTTP 200 with an error/timeout 'remark' and empty elements [].
+        // Reject responses that contain an error remark.
+        const hasErrorRemark =
+          typeof response.data?.remark === 'string' &&
+          /timed out|runtime error|rate limit|quota/i.test(response.data.remark);
+
+        if (response.data && Array.isArray(response.data.elements) && !hasErrorRemark) {
+          responseData = response.data;
+          break; // Successfully received valid elements
+        }
+      } catch {
+        // Fall back to next mirror or durable cache
+      }
+    }
+
+    // 3. Fallback to durable MongoDB cache if live request failed or timed out
+    if (!responseData) {
+      if (propertyId) {
+        try {
+          const { Property } = await import('../models/Property');
+          const prop = await Property.findById(propertyId).select('nearbyAmenitiesCache').lean();
+          if (prop?.nearbyAmenitiesCache && Array.isArray(prop.nearbyAmenitiesCache.amenities)) {
+            const durableData: NearbyAmenitiesResponse = {
+              propertyCoordinates: { latitude, longitude },
+              searchRadiusKm: prop.nearbyAmenitiesCache.radiusKm || boundedRadiusKm,
+              amenities: prop.nearbyAmenitiesCache.amenities,
+              counts: prop.nearbyAmenitiesCache.counts,
+              cached: true,
+              attribution: prop.nearbyAmenitiesCache.attribution || 'Data © OpenStreetMap contributors, ODbL 1.0 via Overpass API.',
+              isUnavailable: false,
+            };
+
+            // Store in in-memory cache for 5 minutes so subsequent calls are instant
+            cache.set(cacheKey, {
+              data: durableData,
+              expiresAt: now + 5 * 60 * 1000,
+            });
+
+            return durableData;
+          }
+        } catch {
+          // If DB read fails, fall through to unavailable response
+        }
+      }
+
+      const fallbackResponse: NearbyAmenitiesResponse = {
+        propertyCoordinates: { latitude, longitude },
+        searchRadiusKm: boundedRadiusKm,
+        amenities: [],
+        counts: {
+          education: 0,
+          healthcare: 0,
+          shopping: 0,
+          transit: 0,
+          total: 0,
+        },
+        cached: false,
+        attribution: 'Data © OpenStreetMap contributors. Overpass API temporarily unavailable.',
+        isUnavailable: true,
+        message: 'Nearby facilities are temporarily unavailable. Please try again later.',
+      };
+
+      // Cache unavailable result briefly (30s) to protect against immediate retry bursts
+      cache.set(cacheKey, {
+        data: fallbackResponse,
+        expiresAt: now + 30 * 1000,
+      });
+
+      return fallbackResponse;
+    }
+
+    // 4. Parse elements and calculate distances
+    const elements = responseData.elements || [];
+    const amenities: NearbyAmenity[] = [];
+    const seenNames = new Set<string>();
+
+    for (const el of elements) {
+      const tags = el.tags || {};
+      const name = tags.name || tags['name:en'] || tags['name:hi'] || tags['name:gu'];
+      if (!name) continue; // Skip unnamed items
+
+      const catInfo = categorizeElement(tags);
+      if (!catInfo) continue;
+
+      const lat = el.lat ?? el.center?.lat;
+      const lon = el.lon ?? el.center?.lon;
+      if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+
+      const distanceKm = calculateHaversineDistanceKm(latitude, longitude, lat, lon);
+      if (distanceKm > boundedRadiusKm) continue; // Must be within search radius
+
+      const dedupKey = `${catInfo.category}:${name.toLowerCase()}`;
+      if (seenNames.has(dedupKey)) continue;
+      seenNames.add(dedupKey);
+
+      amenities.push({
+        id: `${el.type || 'node'}_${el.id}`,
+        name,
+        category: catInfo.category,
+        categoryLabel: catInfo.categoryLabel,
+        latitude: lat,
+        longitude: lon,
+        distanceKm,
+        type: catInfo.type,
+      });
+    }
+
+    // Sort ascending by distance (nearest first)
+    amenities.sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const counts = {
+      education: amenities.filter((a) => a.category === 'education').length,
+      healthcare: amenities.filter((a) => a.category === 'healthcare').length,
+      shopping: amenities.filter((a) => a.category === 'shopping').length,
+      transit: amenities.filter((a) => a.category === 'transit').length,
+      total: amenities.length,
     };
 
-    // Cache negative result briefly (30s) to protect against immediate retry bursts
+    const attribution = 'Data © OpenStreetMap contributors, ODbL 1.0 via Overpass API. Approximate straight-line distances.';
+    const result: NearbyAmenitiesResponse = {
+      propertyCoordinates: { latitude, longitude },
+      searchRadiusKm: boundedRadiusKm,
+      amenities,
+      counts,
+      cached: false,
+      attribution,
+      isUnavailable: false,
+    };
+
+    // Cache successful result in memory for 1 hour
     cache.set(cacheKey, {
-      data: fallbackResponse,
-      expiresAt: now + 30 * 1000,
+      data: result,
+      expiresAt: now + CACHE_TTL_MS,
     });
 
-    return fallbackResponse;
-  }
+    // 5. Asynchronously persist valid successful result to MongoDB (safe background persistence)
+    if (propertyId && !result.isUnavailable) {
+      (async () => {
+        try {
+          const { Property } = await import('../models/Property');
+          await Property.updateOne(
+            { _id: propertyId },
+            {
+              $set: {
+                nearbyAmenitiesCache: {
+                  radiusKm: boundedRadiusKm,
+                  amenities: result.amenities,
+                  counts: result.counts,
+                  attribution: result.attribution,
+                  fetchedAt: new Date(),
+                },
+              },
+            }
+          );
+        } catch {
+          // Non-blocking: background durable cache write error does not fail the HTTP request
+        }
+      })();
+    }
 
-  const elements = responseData.elements || [];
-  const amenities: NearbyAmenity[] = [];
-  const seenNames = new Set<string>();
-
-  for (const el of elements) {
-    const tags = el.tags || {};
-    const name = tags.name || tags['name:en'] || tags['name:hi'] || tags['name:gu'];
-    if (!name) continue; // Skip unnamed items
-
-    const catInfo = categorizeElement(tags);
-    if (!catInfo) continue;
-
-    // For nodes: el.lat / el.lon
-    // For ways: el.center.lat / el.center.lon (from `out center`)
-    const lat = el.lat ?? el.center?.lat;
-    const lon = el.lon ?? el.center?.lon;
-    if (typeof lat !== 'number' || typeof lon !== 'number') continue;
-
-    const distanceKm = calculateHaversineDistanceKm(latitude, longitude, lat, lon);
-    if (distanceKm > boundedRadiusKm) continue; // Must be within search radius
-
-    const dedupKey = `${catInfo.category}:${name.toLowerCase()}`;
-    if (seenNames.has(dedupKey)) continue;
-    seenNames.add(dedupKey);
-
-    amenities.push({
-      id: `${el.type || 'node'}_${el.id}`,
-      name,
-      category: catInfo.category,
-      categoryLabel: catInfo.categoryLabel,
-      latitude: lat,
-      longitude: lon,
-      distanceKm,
-      type: catInfo.type,
+    return result;
+  })()
+    .finally(() => {
+      pendingRequests.delete(cacheKey);
     });
-  }
 
-  // Sort ascending by distance (nearest first)
-  amenities.sort((a, b) => a.distanceKm - b.distanceKm);
-
-  const counts = {
-    education: amenities.filter((a) => a.category === 'education').length,
-    healthcare: amenities.filter((a) => a.category === 'healthcare').length,
-    shopping: amenities.filter((a) => a.category === 'shopping').length,
-    transit: amenities.filter((a) => a.category === 'transit').length,
-    total: amenities.length,
-  };
-
-  const result: NearbyAmenitiesResponse = {
-    propertyCoordinates: { latitude, longitude },
-    searchRadiusKm: boundedRadiusKm,
-    amenities,
-    counts,
-    cached: false,
-    attribution: 'Data © OpenStreetMap contributors, ODbL 1.0 via Overpass API. Approximate straight-line distances.',
-    isUnavailable: false,
-  };
-
-  // Cache successful result for 1 hour
-  cache.set(cacheKey, {
-    data: result,
-    expiresAt: now + CACHE_TTL_MS,
-  });
-
-  return result;
+  pendingRequests.set(cacheKey, fetchPromise);
+  return fetchPromise;
 }

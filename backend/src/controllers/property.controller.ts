@@ -148,7 +148,7 @@ export async function getNearbyAmenities(req: Request, res: Response, next: Next
     // 3. Fetch nearby amenities using Overpass API with caching and distance calculation
     const radiusKm = req.query.radius ? Number(req.query.radius) : 3;
     const { fetchNearbyAmenities } = await import('../services/location.service');
-    const amenitiesData = await fetchNearbyAmenities(lat, lng, radiusKm);
+    const amenitiesData = await fetchNearbyAmenities(lat, lng, radiusKm, property._id?.toString());
 
     res.status(200).json({
       success: true,

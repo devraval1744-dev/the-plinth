@@ -146,6 +146,30 @@ export interface IProperty extends Document {
     images: IPropertyImage[];
   };
 
+  // Durable cache for nearby amenities fetched from OpenStreetMap/Overpass
+  nearbyAmenitiesCache?: {
+    radiusKm: number;
+    amenities: Array<{
+      id: string;
+      name: string;
+      category: 'education' | 'healthcare' | 'shopping' | 'transit';
+      categoryLabel: string;
+      latitude: number;
+      longitude: number;
+      distanceKm: number;
+      type: string;
+    }>;
+    counts: {
+      education: number;
+      healthcare: number;
+      shopping: number;
+      transit: number;
+      total: number;
+    };
+    attribution: string;
+    fetchedAt: Date;
+  };
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -315,6 +339,9 @@ const PropertySchema = new Schema<IProperty>(
     // Re-approval: preserves the last publicly-approved data while a new edit is under review
     pendingReApproval: { type: Boolean, default: false },
     approvedSnapshot: { type: Schema.Types.Mixed, default: undefined },
+
+    // Durable cache for nearby amenities (survives backend restarts and upstream outages)
+    nearbyAmenitiesCache: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 );
