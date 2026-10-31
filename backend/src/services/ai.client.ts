@@ -43,6 +43,15 @@ export async function callAnalyzeEndpoint(
   return response.data;
 }
 
+export async function fetchBlueprintGLBStream(filename: string): Promise<any> {
+  const safeFilename = path.basename(filename);
+  const response = await axios.get(`${AI_BASE}/api/models/${safeFilename}`, {
+    responseType: 'stream',
+    timeout: 15_000,
+  });
+  return response.data;
+}
+
 export async function isAiServiceHealthy(): Promise<boolean> {
   try {
     const res = await axios.get(`${AI_BASE}/api/health`, { timeout: 3000 });

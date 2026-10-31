@@ -68,6 +68,19 @@ export async function getPublic3D(req: Request, res: Response, next: NextFunctio
   } catch (err) { next(err); }
 }
 
+// GET /api/properties/:propertyId/blueprints/:blueprintId/3d/model.glb
+export async function getBlueprintGLB(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { stream, filename } = await AnalysisService.getBlueprintGLBStream(
+      req.params.blueprintId,
+      req.params.propertyId,
+    );
+    res.setHeader('Content-Type', 'model/gltf-binary');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    stream.pipe(res);
+  } catch (err) { next(err); }
+}
+
 // GET /api/admin/properties/:propertyId/blueprints/:blueprintId/analysis
 export async function adminGetAnalysis(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

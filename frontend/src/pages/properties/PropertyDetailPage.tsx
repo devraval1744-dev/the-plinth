@@ -314,7 +314,7 @@ export default function PropertyDetailPage() {
                                 const d = threeDData[propBp._id];
                                 if (d === 'loading') return <div className="flex justify-center py-8"><LoadingSpinner size="lg" /></div>;
                                 if (d === 'error') return <p className="text-sm text-navy-500 text-center py-6">3D visualization currently unavailable. <button onClick={() => { setThreeDData((p) => { const n={...p}; delete n[propBp._id]; return n; }); load3D(propBp._id, property._id); }} className="underline">Retry</button></p>;
-                                if (d && typeof d === 'object') return <Blueprint3DViewer data={d.analysis} isDemo={d.isDemo} provider={d.provider} />;
+                                if (d && typeof d === 'object') return <Blueprint3DViewer data={d.analysis} isDemo={d.isDemo} provider={d.provider} propertyId={property._id} blueprintId={propBp._id} />;
                                 return null;
                               })()}
                             </div>
@@ -355,7 +355,7 @@ export default function PropertyDetailPage() {
                                 const d = threeDData[unitBp._id];
                                 if (d === 'loading') return <div className="flex justify-center py-8"><LoadingSpinner size="lg" /></div>;
                                 if (d === 'error') return <p className="text-sm text-navy-500 text-center py-6">3D visualization currently unavailable. <button onClick={() => { setThreeDData((p) => { const n={...p}; delete n[unitBp._id]; return n; }); load3D(unitBp._id, property._id); }} className="underline">Retry</button></p>;
-                                if (d && typeof d === 'object') return <Blueprint3DViewer data={d.analysis} isDemo={d.isDemo} provider={d.provider} />;
+                                if (d && typeof d === 'object') return <Blueprint3DViewer data={d.analysis} isDemo={d.isDemo} provider={d.provider} propertyId={property._id} blueprintId={unitBp._id} />;
                                 return null;
                               })()}
                             </div>

@@ -463,6 +463,8 @@ export interface SpatialAnalysis {
   doors:     SpatialDoor[];
   windows:   SpatialWindow[];
   balconies: SpatialBalcony[];
+  glb_ready?:    boolean;
+  glb_filename?: string;
 }
 
 export interface BlueprintAnalysisJob {

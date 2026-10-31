@@ -22,12 +22,19 @@ def get_provider() -> BlueprintAnalysisProvider:
     if provider_name in ("image_aware", "image_aware_demo"):
         return ImageAwareProvider()
 
-    # Future real providers — implement and register here
-    # if provider_name == "openai":
-    #     from app.providers.openai_provider import OpenAIProvider
-    #     return OpenAIProvider(api_key=config.OPENAI_API_KEY, model=config.OPENAI_MODEL)
+    if provider_name in ("gemini", "gemini_vision", "vision", "default"):
+        if not config.GEMINI_API_KEY:
+            raise ValueError(
+                "AI_PROVIDER=gemini requires GEMINI_API_KEY to be set in the environment. "
+                "Add GEMINI_API_KEY=<your-key> to ai-service/.env"
+            )
+        from app.providers.gemini_provider import GeminiProvider
+        return GeminiProvider(
+            api_key=config.GEMINI_API_KEY,
+            model=config.GEMINI_MODEL,
+        )
 
     raise ValueError(
         f"Unknown AI provider: '{provider_name}'. "
-        f"Supported: demo, image_aware"
+        f"Supported: demo, image_aware, gemini"
     )

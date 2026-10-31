@@ -217,97 +217,180 @@ function AnalysisPanel({
   const [job, setJob] = useState<BlueprintAnalysisJob | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState('');
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingRef = useRef<boolean>(false);
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    isPollingRef.current = false;
+  };
+
+  const startPolling = (bpId: string) => {
+    stopPolling();
+    isPollingRef.current = true;
+    const startTime = Date.now();
+    const MAX_POLL_MS = 120_000; // 120 seconds maximum polling
+
+    const poll = async () => {
+      if (!isPollingRef.current) return;
+
+      try {
+        const updated = await getAnalysisApi(propertyId, bpId);
+        if (!isPollingRef.current) return;
+
+        // If version has changed or record belongs to another version, continue or update
+        if (updated) {
+          setJob(updated);
+
+          if (updated.status === 'COMPLETED') {
+            stopPolling();
+            setIsWorking(false);
+            return;
+          }
+
+          if (updated.status === 'FAILED' || updated.status === 'NEEDS_REVIEW') {
+            stopPolling();
+            setIsWorking(false);
+            if (updated.errorMessage) {
+              setError(updated.errorMessage);
+            }
+            return;
+          }
+        }
+
+        if (Date.now() - startTime > MAX_POLL_MS) {
+          stopPolling();
+          setIsWorking(false);
+          setError('Analysis timed out after 120 seconds. Please retry.');
+          return;
+        }
+
+        // Schedule next poll in 1000ms
+        pollTimerRef.current = setTimeout(poll, 1000);
+      } catch (err) {
+        if (!isPollingRef.current) return;
+        // Transient network error during polling — try again if within timeout
+        if (Date.now() - startTime > MAX_POLL_MS) {
+          stopPolling();
+          setIsWorking(false);
+          setError(getErrorMessage(err));
+        } else {
+          pollTimerRef.current = setTimeout(poll, 1000);
+        }
+      }
+    };
+
+    // First poll check after 1000ms
+    pollTimerRef.current = setTimeout(poll, 1000);
+  };
 
   useEffect(() => {
+    stopPolling();
+    setIsWorking(false);
+    setError('');
+
     getAnalysisApi(propertyId, blueprint._id)
-      .then(setJob)
+      .then((data) => {
+        setJob(data);
+        // If initial load reveals an in-progress analysis, resume polling
+        if (data && (data.status === 'QUEUED' || data.status === 'PROCESSING' || data.status === 'STRUCTURE_EXTRACTED')) {
+          setIsWorking(true);
+          startPolling(blueprint._id);
+        }
+      })
       .catch(() => setJob(null));
+
+    return () => {
+      stopPolling();
+    };
   }, [blueprint._id, blueprint.version, propertyId]);
 
   const handleAnalyze = async () => {
-    setIsWorking(true); setError('');
+    if (isWorking) return;
+    setIsWorking(true);
+    setError('');
     try {
       await triggerAnalysisApi(propertyId, blueprint._id);
-      // Poll once after a short delay to catch synchronous completion
-      setTimeout(async () => {
-        const updated = await getAnalysisApi(propertyId, blueprint._id);
-        setJob(updated);
-        setIsWorking(false);
-      }, 1800);
+      startPolling(blueprint._id);
     } catch (e) {
       setError(getErrorMessage(e));
       setIsWorking(false);
+      stopPolling();
     }
   };
 
   const handleRetry = async () => {
-    setIsWorking(true); setError('');
+    if (isWorking) return;
+    setIsWorking(true);
+    setError('');
     try {
       await retryAnalysisApi(propertyId, blueprint._id);
-      setTimeout(async () => {
-        const updated = await getAnalysisApi(propertyId, blueprint._id);
-        setJob(updated);
-        setIsWorking(false);
-      }, 1800);
+      startPolling(blueprint._id);
     } catch (e) {
       setError(getErrorMessage(e));
       setIsWorking(false);
+      stopPolling();
     }
   };
 
   const status = job?.status ?? 'NOT_STARTED';
   const inProgress = status === 'QUEUED' || status === 'PROCESSING' || status === 'STRUCTURE_EXTRACTED' || isWorking;
   const isOldProvider = job?.status === 'COMPLETED' && job?.provider === 'demo';
+  // Only show Demo AI badge when analysis is completed and genuinely marked as demo, not on temporary placeholder state
+  const showDemoBadge = !inProgress && job?.status === 'COMPLETED' && Boolean(job?.isDemo);
 
   return (
     <div className="border-t border-navy-100 pt-3 space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-navy-600">3D Analysis</span>
-          <span className={STATUS_BADGE[status] ?? 'badge-navy'}>
-            {STATUS_LABELS[status] ?? status}
+          <span className={STATUS_BADGE[inProgress ? 'PROCESSING' : status] ?? 'badge-navy'}>
+            {STATUS_LABELS[inProgress ? 'PROCESSING' : status] ?? status}
           </span>
-          {job?.isDemo && <span className="badge bg-amber-100 text-amber-700 text-xs">Demo AI</span>}
-          {job?.provider && (
+          {showDemoBadge && <span className="badge bg-amber-100 text-amber-700 text-xs">Demo AI</span>}
+          {!inProgress && job?.provider && (
             <span className="text-xs text-navy-400">{job.provider}</span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {status === 'NOT_STARTED' && (
+          {!inProgress && status === 'NOT_STARTED' && (
             <button onClick={handleAnalyze} disabled={isWorking} className="btn btn-secondary text-xs px-3 py-1.5">
-              {isWorking ? <LoadingSpinner size="sm" /> : '▶ Analyse Blueprint'}
+              ▶ Analyse Blueprint
             </button>
           )}
-          {(status === 'FAILED' || status === 'NEEDS_REVIEW') && (
+          {!inProgress && (status === 'FAILED' || status === 'NEEDS_REVIEW') && (
             <button onClick={handleRetry} disabled={isWorking} className="btn btn-secondary text-xs px-3 py-1.5">
-              {isWorking ? <LoadingSpinner size="sm" /> : '↺ Retry'}
+              ↺ Retry
             </button>
           )}
-          {status === 'COMPLETED' && (
+          {!inProgress && status === 'COMPLETED' && (
             <button
               onClick={handleRetry}
               disabled={isWorking}
               className="btn btn-secondary text-xs px-3 py-1.5"
               title={isOldProvider ? 'Previous analysis used the generic demo provider. Re-analyze to use the blueprint-aware provider.' : 'Re-run analysis with the current provider'}
             >
-              {isWorking ? <LoadingSpinner size="sm" /> : '↺ Re-analyze'}
+              ↺ Re-analyze
             </button>
           )}
           {inProgress && <LoadingSpinner size="sm" />}
         </div>
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
-      {isOldProvider && !isWorking && (
+      {isOldProvider && !inProgress && (
         <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5">
           This analysis used the generic demo provider. Click Re-analyze to use the blueprint-aware provider for a more accurate 3D layout.
         </p>
       )}
-      {status === 'FAILED' && job?.errorMessage && (
+      {!inProgress && status === 'FAILED' && job?.errorMessage && (
         <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{job.errorMessage}</p>
       )}
-      {status === 'COMPLETED' && (
+      {!inProgress && status === 'COMPLETED' && (
         <p className="text-xs text-green-700">
-          ✓ Spatial structure extracted · v{job?.blueprintVersion} · {job?.analysis?.rooms.length ?? 0} rooms
+          ✓ Spatial structure extracted · v{job?.blueprintVersion} · {job?.analysis?.rooms?.length ?? 0} rooms
         </p>
       )}
     </div>

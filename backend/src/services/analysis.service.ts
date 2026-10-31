@@ -7,7 +7,7 @@ import {
 } from '../models/BlueprintAnalysis';
 import { Blueprint, BlueprintStatus } from '../models/Blueprint';
 import { Property, PropertyStatus } from '../models/Property';
-import { callAnalyzeEndpoint } from './ai.client';
+import { callAnalyzeEndpoint, fetchBlueprintGLBStream } from './ai.client';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -214,6 +214,60 @@ export async function getPublic3D(
     isDemo:   job.isDemo,
     provider: job.provider,
   };
+}
+
+// ─── Stream GLB 3D model (reusing exact authorization checks of getPublic3D) ──
+
+export async function getBlueprintGLBStream(
+  blueprintId: string,
+  propertyId: string,
+): Promise<{ stream: any; filename: string }> {
+  assertValidId(blueprintId, 'blueprint ID');
+  assertValidId(propertyId, 'property ID');
+
+  // Verify property is APPROVED (or pendingReApproval with approved snapshot)
+  const property = await Property.findById(propertyId);
+  if (!property) {
+    const err: any = new Error('Property not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const isVisible =
+    property.status === PropertyStatus.APPROVED ||
+    (property as any).pendingReApproval === true;
+  if (!isVisible) {
+    const err: any = new Error('3D model not available for this property');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // The blueprint must be ACTIVE (not archived)
+  const bp = await Blueprint.findOne({
+    _id: blueprintId,
+    propertyId: new mongoose.Types.ObjectId(propertyId),
+    status: BlueprintStatus.ACTIVE,
+  });
+  if (!bp) {
+    const err: any = new Error('Blueprint not found or not active');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Retrieve analysis strictly for the current ACTIVE version
+  const job = await BlueprintAnalysis.findOne({
+    blueprintId: bp._id,
+    blueprintVersion: bp.version,
+    status: AnalysisStatus.COMPLETED,
+  });
+  if (!job || !job.analysis) {
+    const err: any = new Error('3D model visualization not yet available');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const modelFilename = job.analysis.glb_filename || `${bp._id}_v${bp.version}.glb`;
+  const stream = await fetchBlueprintGLBStream(modelFilename);
+  return { stream, filename: modelFilename };
 }
 
 // ─── Admin get analysis ───────────────────────────────────────────────────────

@@ -1,0 +1,714 @@
+{
+  "blueprint_id": "6ae5fb05d5e45e0955ec9470",
+  "unit_type": "3 BHK",
+  "blueprint_version": 3,
+  "provider": "hybrid_gemini",
+  "is_demo": false,
+  "canvas_width": 12.29,
+  "canvas_height": 8.96,
+  "rooms": [
+    {
+      "id": "r1",
+      "name": "MASTER BEDROOM",
+      "type": "bedroom",
+      "x": 2.08,
+      "y": 0.68,
+      "width": 2.64,
+      "height": 3.3,
+      "area_sqft": 171
+    },
+    {
+      "id": "r2",
+      "name": "MASTER TOILET",
+      "type": "bathroom",
+      "x": 4.71,
+      "y": 0.68,
+      "width": 1.19,
+      "height": 3.3,
+      "area_sqft": 54
+    },
+    {
+      "id": "r3",
+      "name": "BEDROOM 2",
+      "type": "bedroom",
+      "x": 5.9,
+      "y": 0.68,
+      "width": 1.54,
+      "height": 3.3,
+      "area_sqft": 147
+    },
+    {
+      "id": "r4",
+      "name": "BEDROOM 2",
+      "type": "bedroom",
+      "x": 7.43,
+      "y": 0.68,
+      "width": 2.95,
+      "height": 3.3,
+      "area_sqft": 147
+    },
+    {
+      "id": "r5",
+      "name": "UTILITY",
+      "type": "utility",
+      "x": 10.38,
+      "y": 0.68,
+      "width": 1.2,
+      "height": 1.57,
+      "area_sqft": 42
+    },
+    {
+      "id": "r6",
+      "name": "TOILET 2",
+      "type": "bathroom",
+      "x": 10.38,
+      "y": 2.25,
+      "width": 1.2,
+      "height": 1.73,
+      "area_sqft": 48
+    },
+    {
+      "id": "r7",
+      "name": "BALCONY",
+      "type": "balcony",
+      "x": 0.63,
+      "y": 3.98,
+      "width": 1.45,
+      "height": 3.83,
+      "area_sqft": 100
+    },
+    {
+      "id": "r8",
+      "name": "LIVING",
+      "type": "living_room",
+      "x": 2.08,
+      "y": 3.98,
+      "width": 4.07,
+      "height": 3.83,
+      "area_sqft": 251
+    },
+    {
+      "id": "r9",
+      "name": "DINING",
+      "type": "dining",
+      "x": 6.14,
+      "y": 3.98,
+      "width": 1.29,
+      "height": 3.83,
+      "area_sqft": 123
+    },
+    {
+      "id": "r10",
+      "name": "COMMON TOILET",
+      "type": "bathroom",
+      "x": 7.43,
+      "y": 3.98,
+      "width": 2.95,
+      "height": 1.39,
+      "area_sqft": 38
+    },
+    {
+      "id": "r11",
+      "name": "BEDROOM 3",
+      "type": "bedroom",
+      "x": 7.43,
+      "y": 5.37,
+      "width": 2.95,
+      "height": 2.44,
+      "area_sqft": 120
+    }
+  ],
+  "walls": [
+    {
+      "id": "w1",
+      "start_x": 2.077,
+      "start_y": 0.695,
+      "end_x": 4.714,
+      "end_y": 0.695,
+      "thickness": 0.12
+    },
+    {
+      "id": "w2",
+      "start_x": 4.714,
+      "start_y": 0.695,
+      "end_x": 5.9,
+      "end_y": 0.695,
+      "thickness": 0.12
+    },
+    {
+      "id": "w3",
+      "start_x": 5.9,
+      "start_y": 0.695,
+      "end_x": 7.431,
+      "end_y": 0.695,
+      "thickness": 0.12
+    },
+    {
+      "id": "w4",
+      "start_x": 7.431,
+      "start_y": 0.695,
+      "end_x": 10.362,
+      "end_y": 0.695,
+      "thickness": 0.12
+    },
+    {
+      "id": "w5",
+      "start_x": 10.362,
+      "start_y": 0.695,
+      "end_x": 11.577,
+      "end_y": 0.695,
+      "thickness": 0.12
+    },
+    {
+      "id": "w6",
+      "start_x": 4.714,
+      "start_y": 0.695,
+      "end_x": 4.714,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w7",
+      "start_x": 0.63,
+      "start_y": 3.98,
+      "end_x": 2.077,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w8",
+      "start_x": 2.077,
+      "start_y": 3.98,
+      "end_x": 4.714,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w9",
+      "start_x": 4.714,
+      "start_y": 3.98,
+      "end_x": 5.9,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w10",
+      "start_x": 5.9,
+      "start_y": 3.98,
+      "end_x": 7.431,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w11",
+      "start_x": 7.431,
+      "start_y": 3.98,
+      "end_x": 10.367,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w12",
+      "start_x": 10.367,
+      "start_y": 3.98,
+      "end_x": 11.579,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w13",
+      "start_x": 2.077,
+      "start_y": 0.695,
+      "end_x": 2.077,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w14",
+      "start_x": 2.077,
+      "start_y": 3.98,
+      "end_x": 2.078,
+      "end_y": 7.81,
+      "thickness": 0.12
+    },
+    {
+      "id": "w15",
+      "start_x": 5.9,
+      "start_y": 0.695,
+      "end_x": 5.9,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w16",
+      "start_x": 7.431,
+      "start_y": 0.695,
+      "end_x": 7.431,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w17",
+      "start_x": 7.431,
+      "start_y": 3.98,
+      "end_x": 7.431,
+      "end_y": 5.382,
+      "thickness": 0.12
+    },
+    {
+      "id": "w18",
+      "start_x": 7.431,
+      "start_y": 5.382,
+      "end_x": 7.431,
+      "end_y": 7.81,
+      "thickness": 0.12
+    },
+    {
+      "id": "w19",
+      "start_x": 10.362,
+      "start_y": 0.695,
+      "end_x": 10.364,
+      "end_y": 2.249,
+      "thickness": 0.12
+    },
+    {
+      "id": "w20",
+      "start_x": 10.364,
+      "start_y": 2.249,
+      "end_x": 10.367,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w21",
+      "start_x": 10.367,
+      "start_y": 3.98,
+      "end_x": 10.369,
+      "end_y": 5.382,
+      "thickness": 0.12
+    },
+    {
+      "id": "w22",
+      "start_x": 10.369,
+      "start_y": 5.382,
+      "end_x": 10.373,
+      "end_y": 7.81,
+      "thickness": 0.12
+    },
+    {
+      "id": "w23",
+      "start_x": 11.577,
+      "start_y": 0.695,
+      "end_x": 11.578,
+      "end_y": 2.249,
+      "thickness": 0.12
+    },
+    {
+      "id": "w24",
+      "start_x": 11.578,
+      "start_y": 2.249,
+      "end_x": 11.579,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w25",
+      "start_x": 10.364,
+      "start_y": 2.249,
+      "end_x": 11.578,
+      "end_y": 2.249,
+      "thickness": 0.12
+    },
+    {
+      "id": "w26",
+      "start_x": 0.63,
+      "start_y": 7.81,
+      "end_x": 2.078,
+      "end_y": 7.81,
+      "thickness": 0.12
+    },
+    {
+      "id": "w27",
+      "start_x": 2.078,
+      "start_y": 7.81,
+      "end_x": 7.431,
+      "end_y": 7.81,
+      "thickness": 0.12
+    },
+    {
+      "id": "w28",
+      "start_x": 7.431,
+      "start_y": 7.81,
+      "end_x": 10.373,
+      "end_y": 7.81,
+      "thickness": 0.12
+    },
+    {
+      "id": "w29",
+      "start_x": 0.63,
+      "start_y": 7.81,
+      "end_x": 0.63,
+      "end_y": 3.98,
+      "thickness": 0.12
+    },
+    {
+      "id": "w30",
+      "start_x": 7.431,
+      "start_y": 5.382,
+      "end_x": 10.369,
+      "end_y": 5.382,
+      "thickness": 0.12
+    }
+  ],
+  "doors": [
+    {
+      "id": "d1",
+      "x": 4.71,
+      "y": 3.58,
+      "width": 0.9,
+      "orientation": "west",
+      "connects_to": "MASTER BEDROOM"
+    },
+    {
+      "id": "d2",
+      "x": 4.71,
+      "y": 2.69,
+      "width": 0.9,
+      "orientation": "west",
+      "connects_to": "MASTER TOILET"
+    },
+    {
+      "id": "d3",
+      "x": 7.37,
+      "y": 3.98,
+      "width": 0.9,
+      "orientation": "north",
+      "connects_to": "BEDROOM 2"
+    },
+    {
+      "id": "d4",
+      "x": 7.87,
+      "y": 3.98,
+      "width": 0.9,
+      "orientation": "north",
+      "connects_to": "BEDROOM 2"
+    },
+    {
+      "id": "d5",
+      "x": 10.57,
+      "y": 2.25,
+      "width": 0.9,
+      "orientation": "north",
+      "connects_to": "UTILITY"
+    },
+    {
+      "id": "d6",
+      "x": 8.48,
+      "y": 3.98,
+      "width": 0.9,
+      "orientation": "north",
+      "connects_to": "COMMON TOILET"
+    },
+    {
+      "id": "d7",
+      "x": 8.11,
+      "y": 5.41,
+      "width": 0.9,
+      "orientation": "north",
+      "connects_to": "BEDROOM 3"
+    },
+    {
+      "id": "d8",
+      "x": 4.92,
+      "y": 7.81,
+      "width": 0.9,
+      "orientation": "north",
+      "connects_to": "LIVING"
+    }
+  ],
+  "windows": [
+    {
+      "id": "win1",
+      "x": 3.4,
+      "y": 0.68,
+      "width": 1.4,
+      "orientation": "north",
+      "connects_to": "r1"
+    },
+    {
+      "id": "win2",
+      "x": 6.67,
+      "y": 0.68,
+      "width": 1.4,
+      "orientation": "north",
+      "connects_to": "r3"
+    },
+    {
+      "id": "win3",
+      "x": 8.9,
+      "y": 0.68,
+      "width": 1.4,
+      "orientation": "north",
+      "connects_to": "r4"
+    },
+    {
+      "id": "win4",
+      "x": 4.12,
+      "y": 3.98,
+      "width": 1.4,
+      "orientation": "north",
+      "connects_to": "r8"
+    },
+    {
+      "id": "win5",
+      "x": 6.79,
+      "y": 3.98,
+      "width": 1.4,
+      "orientation": "north",
+      "connects_to": "r9"
+    },
+    {
+      "id": "win6",
+      "x": 8.9,
+      "y": 5.37,
+      "width": 1.4,
+      "orientation": "north",
+      "connects_to": "r11"
+    }
+  ],
+  "balconies": [
+    {
+      "id": "bal_r7",
+      "x": 0.63,
+      "y": 3.98,
+      "width": 1.45,
+      "height": 3.83
+    }
+  ],
+  "file_hash": "c912f8c7b3135615c10ca288c82222320e0a1fc5cdde20b6e7c51ef70f9f379c",
+  "model": "gemini-flash-lite-latest",
+  "pipeline_version": "2.0-hybrid",
+  "validation_report": {
+    "rawCvWalls": 144,
+    "visionWalls": 15,
+    "fusedCandidates": 12,
+    "duplicatesRemoved": 2,
+    "collinearSegmentsMerged": 2,
+    "endpointsSnapped": 6,
+    "tJunctionsCreated": 4,
+    "intersectionsResolved": 0,
+    "finalWalls": 14,
+    "roomPolygons": 11,
+    "confidence": 0.94,
+    "needsReview": false,
+    "connectedComponents": 1,
+    "danglingEndpoints": 4
+  },
+  "wall_footprint": {
+    "polygons": [
+      {
+        "exterior": [
+          [
+            2.017,
+            0.719
+          ],
+          [
+            2.017,
+            7.81
+          ],
+          [
+            2.077,
+            7.81
+          ],
+          [
+            2.077,
+            7.87
+          ],
+          [
+            10.384,
+            7.87
+          ],
+          [
+            10.384,
+            7.81
+          ],
+          [
+            10.444,
+            7.81
+          ],
+          [
+            10.444,
+            5.37
+          ],
+          [
+            10.384,
+            5.37
+          ],
+          [
+            10.383,
+            5.31
+          ],
+          [
+            7.434,
+            5.358
+          ],
+          [
+            7.436,
+            5.478
+          ],
+          [
+            10.324,
+            5.431
+          ],
+          [
+            10.324,
+            7.75
+          ],
+          [
+            2.137,
+            7.75
+          ],
+          [
+            2.137,
+            4.04
+          ],
+          [
+            11.584,
+            4.039
+          ],
+          [
+            11.584,
+            3.979
+          ],
+          [
+            11.644,
+            3.978
+          ],
+          [
+            11.614,
+            0.68
+          ],
+          [
+            11.494,
+            0.682
+          ],
+          [
+            11.507,
+            2.188
+          ],
+          [
+            10.39,
+            2.188
+          ],
+          [
+            10.407,
+            0.72
+          ],
+          [
+            10.347,
+            0.719
+          ],
+          [
+            10.347,
+            0.659
+          ],
+          [
+            2.077,
+            0.659
+          ],
+          [
+            2.077,
+            0.719
+          ],
+          [
+            2.017,
+            0.719
+          ]
+        ],
+        "holes": [
+          [
+            [
+              10.37,
+              3.919
+            ],
+            [
+              10.388,
+              2.308
+            ],
+            [
+              11.509,
+              2.308
+            ],
+            [
+              11.523,
+              3.919
+            ],
+            [
+              10.37,
+              3.919
+            ]
+          ],
+          [
+            [
+              4.773,
+              3.92
+            ],
+            [
+              4.773,
+              0.779
+            ],
+            [
+              10.286,
+              0.779
+            ],
+            [
+              10.269,
+              2.247
+            ],
+            [
+              10.329,
+              2.248
+            ],
+            [
+              10.269,
+              2.247
+            ],
+            [
+              10.25,
+              3.919
+            ],
+            [
+              4.773,
+              3.92
+            ]
+          ],
+          [
+            [
+              4.653,
+              3.92
+            ],
+            [
+              2.137,
+              3.92
+            ],
+            [
+              2.137,
+              0.779
+            ],
+            [
+              4.653,
+              0.779
+            ],
+            [
+              4.653,
+              3.92
+            ]
+          ]
+        ]
+      }
+    ]
+  },
+  "debug_overlay_path": "/Users/devraval/Documents/plinth/ai-service/debug_artifacts/c912f8c7b3135615/10_final_overlay.png",
+  "glb_ready": true,
+  "glb_filename": "6ae5fb05d5e45e0955ec9470_v3.glb"
+}

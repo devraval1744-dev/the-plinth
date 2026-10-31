@@ -7,7 +7,7 @@
  *
  * Wall height and thickness are applied as defaults when not available in data.
  */
-import { Suspense, useRef } from 'react';
+import { Suspense, useRef, useState, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Html, PerspectiveCamera } from '@react-three/drei';
 import type { SpatialAnalysis, SpatialRoom, SpatialWall } from '../../types';
@@ -103,7 +103,7 @@ function WallMesh({ wall, cx, cz }: { wall: SpatialWall; cx: number; cz: number 
   return (
     <mesh position={[midX, WALL_HEIGHT / 2, midZ]} rotation={[0, angle, 0]} castShadow>
       <boxGeometry args={[length, WALL_HEIGHT, thickness]} />
-      <meshStandardMaterial color="#5a5a5a" />
+      <meshStandardMaterial color="#e2e8f0" roughness={0.65} metalness={0.05} />
     </mesh>
   );
 }
@@ -145,6 +145,49 @@ function Scene({ data }: { data: SpatialAnalysis }) {
   );
 }
 
+// ─── GLB Model Loader with Error Boundary & Fallback ─────────────────────────
+
+function GLBModel({ url, onError }: { url: string; onError: () => void }) {
+  const [scene, setScene] = useState<any>(null);
+
+  useEffect(() => {
+    let active = true;
+    import('three/examples/jsm/loaders/GLTFLoader.js')
+      .then(({ GLTFLoader }) => {
+        const loader = new GLTFLoader();
+        loader.load(
+          url,
+          (gltf) => {
+            if (active) {
+              // Enable shadows on all loaded meshes
+              gltf.scene.traverse((child: any) => {
+                if (child.isMesh) {
+                  child.castShadow = true;
+                  child.receiveShadow = true;
+                }
+              });
+              setScene(gltf.scene);
+            }
+          },
+          undefined,
+          (err) => {
+            console.warn('[3D Viewer] GLB failed to load, falling back to procedural scene:', err);
+            if (active) onError();
+          }
+        );
+      })
+      .catch((err) => {
+        console.warn('[3D Viewer] Could not load GLTFLoader:', err);
+        if (active) onError();
+      });
+
+    return () => { active = false; };
+  }, [url, onError]);
+
+  if (!scene) return null;
+  return <primitive object={scene} />;
+}
+
 // ─── Camera reset hook ────────────────────────────────────────────────────────
 
 function ResetButton({ controlsRef }: { controlsRef: React.RefObject<any> }) {
@@ -160,15 +203,40 @@ function ResetButton({ controlsRef }: { controlsRef: React.RefObject<any> }) {
 // ─── Public viewer component ──────────────────────────────────────────────────
 
 interface Props {
-  data:      SpatialAnalysis;
-  isDemo?:   boolean;
-  provider?: string;
-  height?:   number;
+  data:         SpatialAnalysis;
+  isDemo?:      boolean;
+  provider?:    string;
+  height?:      number;
+  propertyId?:  string;
+  blueprintId?: string;
 }
 
-export default function Blueprint3DViewer({ data, isDemo = false, provider = 'demo', height = 500 }: Props) {
+export default function Blueprint3DViewer({
+  data,
+  isDemo = false,
+  provider = 'demo',
+  height = 500,
+  propertyId,
+  blueprintId,
+}: Props) {
   const controlsRef = useRef<any>(null);
   const camDistance = Math.max(data.canvas_width, data.canvas_height) * 1.2;
+
+  // Determine authorized GLB URL if available
+  const hasGlbCandidate = Boolean(data.glb_ready || data.glb_filename);
+  const glbUrl = (hasGlbCandidate && propertyId && blueprintId)
+    ? `/api/properties/${propertyId}/blueprints/${blueprintId}/3d/model.glb`
+    : null;
+
+  const [useGlb, setUseGlb] = useState<boolean>(Boolean(glbUrl));
+  const [glbFailed, setGlbFailed] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (glbUrl) {
+      setUseGlb(true);
+      setGlbFailed(false);
+    }
+  }, [glbUrl]);
 
   const isImageAware    = provider.includes('image_aware') && !provider.includes('fallback');
   const isFallback      = provider.includes('fallback');
@@ -178,6 +246,11 @@ export default function Blueprint3DViewer({ data, isDemo = false, provider = 'de
   const disclosureMsg   = isImageAware
     ? 'Layout derived from the actual uploaded blueprint image using approximate image analysis. Not real AI vision — spatial positions are approximate.'
     : 'This 3D view uses a generic layout template. Not derived from the actual blueprint image.';
+
+  const handleGlbError = () => {
+    setGlbFailed(true);
+    setUseGlb(false);
+  };
 
   return (
     <div className="space-y-2">
@@ -199,7 +272,19 @@ export default function Blueprint3DViewer({ data, isDemo = false, provider = 'de
         <p className="text-xs text-navy-500">
           Drag to rotate · Scroll to zoom · Right-drag to pan
         </p>
-        <ResetButton controlsRef={controlsRef} />
+        <div className="flex items-center gap-2">
+          {/* View mode toggle between High-Fidelity GLB and Procedural Mesh */}
+          {glbUrl && !glbFailed && (
+            <button
+              onClick={() => setUseGlb((prev) => !prev)}
+              className="btn btn-secondary text-xs px-2.5 py-1"
+              title="Toggle between GLB mesh and procedural blueprint geometry"
+            >
+              {useGlb ? 'Show Procedural Layout' : 'Show 3D GLB Model'}
+            </button>
+          )}
+          <ResetButton controlsRef={controlsRef} />
+        </div>
       </div>
 
       {/* 3D canvas */}
@@ -221,8 +306,16 @@ export default function Blueprint3DViewer({ data, isDemo = false, provider = 'de
             maxDistance={camDistance * 2.5}
             maxPolarAngle={Math.PI / 2.05}
           />
+          <ambientLight intensity={0.7} />
+          <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow />
+          <directionalLight position={[-5, 10, -5]} intensity={0.3} />
+
           <Suspense fallback={null}>
-            <Scene data={data} />
+            {useGlb && glbUrl ? (
+              <GLBModel url={glbUrl} onError={handleGlbError} />
+            ) : (
+              <Scene data={data} />
+            )}
           </Suspense>
         </Canvas>
       </div>

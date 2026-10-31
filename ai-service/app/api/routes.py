@@ -56,3 +56,34 @@ async def analyze(
         raise HTTPException(status_code=503, detail=str(e))
 
     return result
+
+
+@router.get("/models/{filename}")
+async def get_model(filename: str):
+    """
+    Secure internal endpoint: streams generated GLB model to Express backend.
+    Enforces strict regex filename validation to eliminate path traversal.
+    """
+    import re
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
+    # Strictly allow only alphanumeric, underscores, hyphens, and dot-glb
+    if not re.match(r"^[a-zA-Z0-9_\-]+\.glb$", filename):
+        raise HTTPException(status_code=400, detail="Invalid model filename")
+
+    models_dir = Path(__file__).resolve().parent.parent.parent / "debug_artifacts" / "models"
+    model_path = (models_dir / filename).resolve()
+
+    # Path traversal guard
+    if not str(model_path).startswith(str(models_dir.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not model_path.exists() or not model_path.is_file():
+        raise HTTPException(status_code=404, detail="GLB model not found")
+
+    return FileResponse(
+        path=str(model_path),
+        media_type="model/gltf-binary",
+        filename=filename,
+    )

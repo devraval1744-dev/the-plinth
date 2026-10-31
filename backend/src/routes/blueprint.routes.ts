@@ -132,6 +132,9 @@ router.post(
 // Public — GET /api/properties/:propertyId/blueprints/:blueprintId/3d
 router.get('/:blueprintId/3d', AnalysisController.getPublic3D);
 
+// Public — GET /api/properties/:propertyId/blueprints/:blueprintId/3d/model.glb
+router.get('/:blueprintId/3d/model.glb', AnalysisController.getBlueprintGLB);
+
 // Builder — POST /api/properties/:propertyId/blueprints/:blueprintId/analyze
 router.post(
   '/:blueprintId/analyze',

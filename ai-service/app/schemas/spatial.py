@@ -92,6 +92,16 @@ class BlueprintAnalysisResult(BaseModel):
     windows: List[Window] = Field(default_factory=list)
     balconies: List[Balcony] = Field(default_factory=list)
 
+    # Hybrid pipeline & geometry validation metadata
+    file_hash: Optional[str] = None
+    model: Optional[str] = None
+    pipeline_version: Optional[str] = "2.0-hybrid"
+    validation_report: Optional[dict] = None
+    wall_footprint: Optional[dict] = None
+    debug_overlay_path: Optional[str] = None
+    glb_ready: bool = False
+    glb_filename: Optional[str] = None
+
     @field_validator("canvas_width", "canvas_height")
     @classmethod
     def canvas_must_be_positive(cls, v: float) -> float:
