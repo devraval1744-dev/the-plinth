@@ -297,7 +297,7 @@ export function buildPlan(data: SpatialAnalysis): Plan {
     } else if (bath) {
       placeOpening(wi.id, 'window', wi.x - cx, wi.y - cz, Math.min(0.9, wi.width || 0.9), 1.35, 2.0, wi.connects_to);
     } else {
-      placeOpening(wi.id, 'window', wi.x - cx, wi.y - cz, Math.max(0.9, Math.min(wi.width || 1.2, 2.0)), 0.9, 2.1, wi.connects_to);
+      placeOpening(wi.id, 'window', wi.x - cx, wi.y - cz, Math.max(0.9, Math.min(wi.width || 1.2, 3.2)), 0.9, 2.1, wi.connects_to);
     }
   });
   walls.forEach((w) => w.openings.sort((a, b) => a.t0 - b.t0));

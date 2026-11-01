@@ -18,6 +18,8 @@ export interface SpatialRoom {
   id: string; name: string; type: string;
   x: number; y: number; width: number; height: number;
   area_sqft?: number;
+  polygon?: number[][];       // true room outline in metres (x/y/width/height is its box)
+  printed_size?: string;      // size printed in the drawing, e.g. 14'5" x 12'10"
 }
 export interface SpatialWall {
   id: string;

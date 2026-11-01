@@ -23,6 +23,10 @@ class Room(BaseModel):
     width: float
     height: float
     area_sqft: Optional[float] = None
+    # true room outline in metres [[x, y], ...] when known (x/y/width/height is its axis-aligned box)
+    polygon: Optional[List[List[float]]] = None
+    # size printed in the drawing, as read from its text (e.g. "14'5\" x 12'10\"")
+    printed_size: Optional[str] = None
 
     @field_validator("width", "height")
     @classmethod

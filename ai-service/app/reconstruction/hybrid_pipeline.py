@@ -11,6 +11,7 @@ from dataclasses import asdict
 import io
 import logging
 import math
+import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -39,6 +40,7 @@ from app.reconstruction.shapely_normalizer import ShapelyNormalizer, NormalizedW
 from app.reconstruction.polygonizer import RoomPolygonizer
 from app.reconstruction.wall_solids import WallSolidGenerator
 from app.reconstruction.debug_visualizer import DebugVisualizer
+from app.reconstruction.raster_pipeline import run_raster_reconstruction
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,19 @@ class HybridReconstructionPipeline:
         # ─── STAGE: PREPROCESSING ────────────────────────────────────────────
         prep = ImagePreprocessor.preprocess(cropped_bgr, debug_dir)
         logger.info(f"[STAGE: PREPROCESSING] est_thickness={prep.estimated_wall_thickness_px:.1f}px")
+
+        # ─── STAGE: RASTER RECONSTRUCTION (pixel + text grounded; preferred) ─────────
+        if os.getenv("PLINTH_RASTER_PIPELINE", "1") != "0":
+            try:
+                raster_result = await self._reconstruct_raster(
+                    cropped_bgr, image_bytes, blueprint_id, unit_type, blueprint_version,
+                    file_hash, debug_dir,
+                )
+            except Exception as e:
+                logger.warning(f"[STAGE: RASTER] failed, using legacy extraction: {e}", exc_info=True)
+                raster_result = None
+            if raster_result is not None:
+                return raster_result
 
         # ─── STAGE: CV_EXTRACTION ────────────────────────────────────────────
         cv_candidates = CvWallExtractor.extract_candidates(prep, debug_dir)
@@ -250,6 +265,88 @@ class HybridReconstructionPipeline:
             file_hash=file_hash,
             model=vision_result.model_name,
             pipeline_version="2.0-hybrid",
+            validation_report=validation_report,
+            wall_footprint=wall_footprint,
+            debug_overlay_path=debug_overlay_rel_path,
+        )
+
+    async def _reconstruct_raster(
+        self,
+        cropped_bgr: np.ndarray,
+        image_bytes: bytes,
+        blueprint_id: str,
+        unit_type: Optional[str],
+        blueprint_version: int,
+        file_hash: str,
+        debug_dir: Optional[Path],
+    ) -> Optional[BlueprintAnalysisResult]:
+        key = (unit_type or "").strip().lower()
+        area_m2 = UNIT_AREAS_M2.get(key, 90.0)
+        ok, crop_jpg = cv2.imencode(".jpg", cropped_bgr, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        out = await run_raster_reconstruction(
+            cropped_bgr, unit_type, area_m2, self._vision_adapter,
+            crop_jpg.tobytes() if ok else None, debug_dir,
+        )
+        if out is None or len(out.walls) < 4 or not out.rooms:
+            logger.info("[STAGE: RASTER] not confident enough (walls/rooms) - falling back")
+            return None
+        logger.info(
+            f"[STAGE: RASTER] walls={len(out.walls)} rooms={len(out.rooms)} doors={len(out.doors)} "
+            f"windows={len(out.windows)} mpp={out.mpp:.4f} ({out.mpp_source}) labels={out.labels_from}"
+        )
+        wall_footprint = WallSolidGenerator.generate_footprint(out.walls)
+        balconies = [
+            Balcony(id=f"bal_{r.id}", x=r.x, y=r.y, width=r.width, height=r.height)
+            for r in out.rooms if r.type == "balcony"
+        ]
+        debug_overlay_rel_path: Optional[str] = None
+        if debug_dir:
+            from app.reconstruction.shapely_normalizer import ShapelyNormalizer
+            ShapelyNormalizer._save_debug_graph(out.walls, out.nodes, out.canvas_w_m, out.canvas_h_m, debug_dir)
+            overlay_file = DebugVisualizer.generate_final_overlay(
+                cropped_bgr=cropped_bgr, walls=out.walls, nodes=out.nodes,
+                canvas_w_m=out.canvas_w_m, canvas_h_m=out.canvas_h_m, debug_dir=debug_dir,
+                doors=out.doors, windows=out.windows, rooms=out.rooms,
+            )
+            debug_overlay_rel_path = str(overlay_file)
+        vision = out.vision
+        provider_name = vision.provider_name if vision is not None else "raster_ocr"
+        validation_report = {
+            "pipeline": "raster",
+            "rawCvWalls": len(out.walls),
+            "visionWalls": 0,
+            "finalWalls": len(out.walls),
+            "roomPolygons": len(out.rooms),
+            "doors": len(out.doors),
+            "windows": len(out.windows),
+            "scaleMetresPerPixel": round(out.mpp, 5),
+            "scaleSource": out.mpp_source,
+            "roomNamesFrom": out.labels_from,
+            "confidence": 0.9 if out.mpp_source == "printed_room_sizes" else 0.75,
+            "needsReview": out.mpp_source != "printed_room_sizes",
+            **out.stats,
+        }
+        spatial_walls = [
+            Wall(id=w.id, start_x=w.start[0], start_y=w.start[1], end_x=w.end[0], end_y=w.end[1],
+                 thickness=w.thickness)
+            for w in out.walls
+        ]
+        return BlueprintAnalysisResult(
+            blueprint_id=blueprint_id,
+            unit_type=unit_type or (vision.unit_type if vision is not None else None),
+            blueprint_version=blueprint_version,
+            provider=f"hybrid_{provider_name}",
+            is_demo=False,
+            canvas_width=out.canvas_w_m,
+            canvas_height=out.canvas_h_m,
+            rooms=out.rooms,
+            walls=spatial_walls,
+            doors=out.doors,
+            windows=out.windows,
+            balconies=balconies,
+            file_hash=file_hash,
+            model=vision.model_name if vision is not None else "rapidocr+opencv",
+            pipeline_version="3.0-raster",
             validation_report=validation_report,
             wall_footprint=wall_footprint,
             debug_overlay_path=debug_overlay_rel_path,
