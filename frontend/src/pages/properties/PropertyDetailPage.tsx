@@ -1,21 +1,45 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import Navbar from '../../components/layout/Navbar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import AlertMessage from '../../components/ui/AlertMessage';
 import BlueprintViewer from '../../components/blueprint/BlueprintViewer';
 import Blueprint3DViewer from '../../components/blueprint3d/Blueprint3DViewer';
 import PropertyAmenitiesMap from '../../components/location/PropertyAmenitiesMap';
-import { getPublicPropertyApi, getNearbyAmenitiesApi } from '../../api/properties.api';
+import PropertyCard from '../../components/property/PropertyCard';
+import SaveButton from '../../components/property/SaveButton';
+import VisitRequestModal from '../../components/visits/VisitRequestModal';
+import ConnectDsaModal from '../../components/dsa/ConnectDsaModal';
+import CustomerMobileNav from '../../components/layout/CustomerMobileNav';
+import { CardGridSkeleton } from '../../components/ui/Skeleton';
+import { VisitStatusPill, LoanStatusPill, isVisitOpen, isLoanOpen } from '../../components/ui/StatusPill';
+import { getPublicPropertyApi, getNearbyAmenitiesApi, getSimilarPropertiesApi } from '../../api/properties.api';
 import { getPublicBlueprintsApi, getPublic3DApi } from '../../api/blueprints.api';
+import { explainRecommendationApi } from '../../api/customer.api';
+import { listMyVisitsApi } from '../../api/visits.api';
+import { listMyLoansApi } from '../../api/loans.api';
 import { getErrorMessage } from '../../api/client';
-import { formatPrice, formatDate, getBuilderName } from '../../utils/format';
+import { formatPrice, formatDate, formatVisitDate, getBuilderName, getPrimaryImage } from '../../utils/format';
 import { useAuth } from '../../context/AuthContext';
+import { useCompare } from '../../context/CompareContext';
+import { useToast } from '../../context/ToastContext';
+import { useAsync } from '../../hooks/useAsync';
 import type { Property, BHKConfig, Blueprint, Public3DResult, NearbyAmenitiesData } from '../../types';
+
+/** 0-100 liveability score from the amenities found within the search radius. */
+function livingScore(counts: NearbyAmenitiesData['counts']): { score: number; label: string } {
+  const part = (n: number, target: number, weight: number) => Math.min(n / target, 1) * weight;
+  const score = Math.round(
+    part(counts.education, 4, 30) + part(counts.healthcare, 3, 25) + part(counts.shopping, 4, 25) + part(counts.transit, 3, 20)
+  );
+  const label = score >= 80 ? 'Excellent' : score >= 60 ? 'Very good' : score >= 40 ? 'Good' : 'Developing';
+  return { score, label };
+}
 
 export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated } = useAuth();
 
   const [property, setProperty] = useState<Property | null>(null);
@@ -30,6 +54,21 @@ export default function PropertyDetailPage() {
   const [amenitiesData, setAmenitiesData] = useState<NearbyAmenitiesData | null>(null);
   const [isAmenitiesLoading, setIsAmenitiesLoading] = useState(false);
   const [amenitiesError, setAmenitiesError] = useState('');
+  const [visitOpen, setVisitOpen] = useState(false);
+  const [loanOpen, setLoanOpen] = useState(false);
+
+  const { user } = useAuth();
+  const compare = useCompare();
+  const toast = useToast();
+  const isCustomer = user?.role === 'CUSTOMER';
+
+  // Customer-only context: how well this fits them, and any request they already made here
+  const explanation = useAsync(() => explainRecommendationApi(id!), [id], isCustomer && Boolean(id));
+  const myVisits = useAsync(listMyVisitsApi, [id], isCustomer);
+  const myLoans = useAsync(listMyLoansApi, [id], isCustomer);
+  const similar = useAsync(() => getSimilarPropertiesApi(id!, 4), [id], Boolean(id));
+  const existingVisit = (myVisits.data ?? []).find((v) => v.property?._id === id && isVisitOpen(v.status));
+  const existingLoan = (myLoans.data ?? []).find((l) => l.property?._id === id && isLoanOpen(l.status));
 
   const fetchNearby = (propertyId: string) => {
     setIsAmenitiesLoading(true);
@@ -475,38 +514,147 @@ export default function PropertyDetailPage() {
                 <p className="text-sm text-navy-500 mt-0.5">{property.locality}, {property.city}</p>
               </div>
 
-              {/* Site visit — Day 6 placeholder */}
-              <div>
-                <button disabled className="btn-primary btn-lg w-full opacity-60 cursor-not-allowed">
-                  Request Site Visit
+              {/* Save · compare · share */}
+              <div className="flex flex-wrap gap-2">
+                <SaveButton propertyId={property._id} variant="button" className="flex-1 min-w-[8rem] text-xs px-3 py-2" />
+                <button
+                  type="button"
+                  aria-pressed={compare.has(property._id)}
+                  onClick={() => compare.toggle({ id: property._id, name: property.projectName, image: getPrimaryImage(property.images, property.coverImageUrl) })}
+                  className={`btn flex-1 min-w-[8rem] text-xs px-3 py-2 ${compare.has(property._id) ? 'bg-navy-700 text-cream-100' : 'btn-secondary'}`}
+                >
+                  {compare.has(property._id) ? '✓ Comparing' : '⇄ Compare'}
                 </button>
-                <p className="text-xs text-navy-400 text-center mt-1">Site visit booking coming soon</p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const url = window.location.href;
+                    try {
+                      if (navigator.share) await navigator.share({ title: property.projectName, url });
+                      else { await navigator.clipboard.writeText(url); toast.success('Link copied to clipboard'); }
+                    } catch { /* user dismissed the share sheet */ }
+                  }}
+                  className="btn-secondary btn text-xs px-3 py-2"
+                  aria-label="Share this property"
+                >
+                  ↗ Share
+                </button>
               </div>
 
-              {/* Loan assistance — Day 6 placeholder */}
-              <div>
-                <button disabled className="btn-secondary btn w-full opacity-60 cursor-not-allowed">
-                  Loan Assistance
-                </button>
-                <p className="text-xs text-navy-400 text-center mt-1">Connect with a verified DSA</p>
-              </div>
+              {/* Site visit */}
+              {isCustomer && existingVisit ? (
+                <div className="rounded-xl bg-cream-100 border border-navy-100 px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-navy-800">Site visit requested</p>
+                    <VisitStatusPill status={existingVisit.status} />
+                  </div>
+                  <p className="text-xs text-navy-600">{formatVisitDate(existingVisit.visitDate)} · {existingVisit.timeSlotLabel}</p>
+                  <Link to="/visits" className="text-xs font-medium text-navy-700 underline">Manage in My Visits →</Link>
+                </div>
+              ) : (
+                <div>
+                  <button
+                    onClick={() => {
+                      if (!isAuthenticated) navigate('/login', { state: { from: location } });
+                      else setVisitOpen(true);
+                    }}
+                    disabled={isAuthenticated && !isCustomer}
+                    className="btn-primary btn-lg w-full"
+                  >
+                    Request Site Visit
+                  </button>
+                  {isAuthenticated && !isCustomer && (
+                    <p className="text-xs text-navy-400 text-center mt-1">Site visits can be requested from a customer account.</p>
+                  )}
+                </div>
+              )}
 
-              {/* Plinth Intelligence — Day 6 placeholder */}
+              {/* DSA connection */}
+              {isCustomer && existingLoan ? (
+                <div className="rounded-xl bg-cream-100 border border-navy-100 px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-navy-800">Connected with a DSA</p>
+                    <LoanStatusPill status={existingLoan.status} />
+                  </div>
+                  <Link to="/dsa-connect" className="text-xs font-medium text-navy-700 underline">Track in DSA Connections →</Link>
+                </div>
+              ) : (
+                <div>
+                  <button
+                    onClick={() => {
+                      if (!isAuthenticated) navigate('/login', { state: { from: location } });
+                      else setLoanOpen(true);
+                    }}
+                    disabled={isAuthenticated && !isCustomer}
+                    className="btn-secondary btn w-full"
+                  >
+                    Connect with a DSA
+                  </button>
+                  <p className="text-xs text-navy-400 text-center mt-1">A verified partner will guide you on financing</p>
+                </div>
+              )}
+
+              {/* Plinth Intelligence */}
               <div className="border-t border-navy-100 pt-4 space-y-3">
                 <p className="text-xs font-semibold text-navy-500 uppercase tracking-wide">Plinth Intelligence</p>
-                <div className="bg-cream-100 rounded-lg px-4 py-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-navy-700">Smart Living Score</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-navy-700">Why This Property?</span>
+                <div className="bg-cream-100 rounded-lg px-4 py-3 space-y-3">
+                  {(() => {
+                    if (isAmenitiesLoading) return <p className="text-xs text-navy-400">Calculating Smart Living Score…</p>;
+                    if (!amenitiesData?.hasCoordinates || amenitiesData.isUnavailable) {
+                      return (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-navy-700">Smart Living Score</span>
+                          <span className="text-xs text-navy-400">{amenitiesData?.hasCoordinates ? 'Unavailable' : 'Needs map pin'}</span>
+                        </div>
+                      );
+                    }
+                    const { score, label } = livingScore(amenitiesData.counts);
+                    const c = amenitiesData.counts;
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-navy-700">Smart Living Score</span>
+                          <span className="text-sm font-semibold text-navy-900">{score}/100 <span className="text-xs font-normal text-navy-500">· {label}</span></span>
+                        </div>
+                        <div className="h-2 mt-2 rounded-full bg-navy-100 overflow-hidden" role="progressbar" aria-valuenow={score} aria-valuemin={0} aria-valuemax={100} aria-label="Smart Living Score">
+                          <div className="h-full bg-gradient-to-r from-gold-500 to-green-500" style={{ width: `${score}%` }} />
+                        </div>
+                        <p className="text-[11px] text-navy-500 mt-2">
+                          {c.education} schools · {c.healthcare} healthcare · {c.shopping} shopping · {c.transit} transit nearby
+                        </p>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="border-t border-navy-200/60 pt-3">
+                    <p className="text-sm text-navy-700 mb-1.5">Why this property?</p>
+                    {!isAuthenticated ? (
+                      <p className="text-xs text-navy-500"><Link to="/login" state={{ from: location }} className="font-medium underline">Log in</Link> to see how well this fits your search history.</p>
+                    ) : !isCustomer ? (
+                      <p className="text-xs text-navy-400">Personal match is shown to customers.</p>
+                    ) : explanation.loading ? (
+                      <p className="text-xs text-navy-400">Checking fit…</p>
+                    ) : explanation.data?.isPersonalized ? (
+                      <>
+                        {explanation.data.matchScore != null && (
+                          <p className="text-sm font-semibold text-navy-900 mb-1">{explanation.data.matchScore}% match for you</p>
+                        )}
+                        <ul className="space-y-1">
+                          {explanation.data.reasons.map((r) => (
+                            <li key={r} className="text-xs text-navy-600 flex gap-1.5"><span className="text-gold-500" aria-hidden="true">✦</span>{r}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="text-xs text-navy-500">Search and view a few more homes and we'll show how this one fits your taste.</p>
+                    )}
                   </div>
                 </div>
               </div>
 
               {!isAuthenticated && (
                 <p className="text-xs text-navy-500 text-center">
-                  <Link to="/login" className="text-navy-700 font-medium hover:underline">Sign in</Link> to save this property and request a visit.
+                  <Link to="/login" state={{ from: location }} className="text-navy-700 font-medium hover:underline">Sign in</Link> to save this property and request a visit.
                 </p>
               )}
             </div>
@@ -519,7 +667,39 @@ export default function PropertyDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Similar properties */}
+        {(similar.loading || (similar.data && similar.data.length > 0)) && (
+          <section aria-label="Similar properties">
+            <h2 className="section-title mb-4">Similar properties</h2>
+            {similar.loading ? <CardGridSkeleton count={4} /> : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {similar.data!.map((p) => (
+                  <PropertyCard key={p._id} property={p} reasons={[`${p.similarity}% similar to this project`]} />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
+
+      {isCustomer && (
+        <>
+          <VisitRequestModal
+            open={visitOpen}
+            onClose={() => setVisitOpen(false)}
+            property={{ _id: property._id, projectName: property.projectName, locality: property.locality }}
+            onCreated={() => myVisits.reload()}
+          />
+          <ConnectDsaModal
+            open={loanOpen}
+            onClose={() => setLoanOpen(false)}
+            property={{ _id: property._id, projectName: property.projectName }}
+            onCreated={() => myLoans.reload()}
+          />
+          <CustomerMobileNav />
+        </>
+      )}
     </div>
   );
 }

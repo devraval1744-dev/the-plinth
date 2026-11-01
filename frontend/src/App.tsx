@@ -15,6 +15,8 @@ import DSAApplyPage from './pages/apply/DSAApplyPage';
 // Public property pages
 import PropertyDiscoveryPage from './pages/properties/PropertyDiscoveryPage';
 import PropertyDetailPage from './pages/properties/PropertyDetailPage';
+import ComparePage from './pages/properties/ComparePage';
+import CompareBar from './components/property/CompareBar';
 
 // Role dashboards
 import CustomerHome from './pages/customer/CustomerHome';
@@ -28,6 +30,10 @@ import AdminPropertiesPage from './pages/admin/properties/AdminPropertiesPage';
 
 // Profile pages
 import CustomerProfilePage from './pages/customer/CustomerProfilePage';
+import SavedPropertiesPage from './pages/customer/SavedPropertiesPage';
+import MyVisitsPage from './pages/customer/MyVisitsPage';
+import MyDsaRequestsPage from './pages/customer/MyDsaRequestsPage';
+import NotificationsPage from './pages/notifications/NotificationsPage';
 import BuilderProfilePage from './pages/builder/BuilderProfilePage';
 import DSAProfilePage from './pages/dsa/DSAProfilePage';
 
@@ -35,6 +41,8 @@ import DSAProfilePage from './pages/dsa/DSAProfilePage';
 import BuilderPropertiesPage from './pages/builder/properties/BuilderPropertiesPage';
 import PropertyFormPage from './pages/builder/properties/PropertyFormPage';
 import BlueprintManagementPage from './pages/builder/blueprints/BlueprintManagementPage';
+import BuilderVisitsPage from './pages/builder/visits/BuilderVisitsPage';
+import DSALeadsPage from './pages/dsa/leads/DSALeadsPage';
 import BuilderChangePasswordPage from './pages/builder/auth/BuilderChangePasswordPage';
 import DSAChangePasswordPage from './pages/dsa/auth/DSAChangePasswordPage';
 
@@ -44,6 +52,7 @@ export default function App() {
   if (isLoading) return <PageLoader />;
 
   return (
+    <>
     <Routes>
       {/* ── Public / Guest only ────────────────────────────── */}
       <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
@@ -56,6 +65,7 @@ export default function App() {
       {/* ── Public property discovery (no auth required) ──── */}
       <Route path="/properties" element={<PropertyDiscoveryPage />} />
       <Route path="/properties/:id" element={<PropertyDetailPage />} />
+      <Route path="/compare" element={<ComparePage />} />
 
       {/* ── Customer ──────────────────────────────────────── */}
       <Route path="/home" element={
@@ -63,6 +73,20 @@ export default function App() {
       } />
       <Route path="/customer/profile" element={
         <ProtectedRoute allowedRoles={['CUSTOMER']}><CustomerProfilePage /></ProtectedRoute>
+      } />
+      <Route path="/saved" element={
+        <ProtectedRoute allowedRoles={['CUSTOMER']}><SavedPropertiesPage /></ProtectedRoute>
+      } />
+      <Route path="/visits" element={
+        <ProtectedRoute allowedRoles={['CUSTOMER']}><MyVisitsPage /></ProtectedRoute>
+      } />
+      <Route path="/dsa-connect" element={
+        <ProtectedRoute allowedRoles={['CUSTOMER']}><MyDsaRequestsPage /></ProtectedRoute>
+      } />
+
+      {/* ── Notifications (every signed-in role) ──────────── */}
+      <Route path="/notifications" element={
+        <ProtectedRoute><NotificationsPage /></ProtectedRoute>
       } />
 
       {/* ── Builder ───────────────────────────────────────── */}
@@ -85,6 +109,9 @@ export default function App() {
       } />
       <Route path="/builder/properties/:id/edit" element={
         <ProtectedRoute allowedRoles={['BUILDER']}><PropertyFormPage /></ProtectedRoute>
+      } />
+      <Route path="/builder/visits" element={
+        <ProtectedRoute allowedRoles={['BUILDER']}><BuilderVisitsPage /></ProtectedRoute>
       } />
       <Route path="/builder/properties/:propertyId/blueprints" element={
         <ProtectedRoute allowedRoles={['BUILDER']}><BlueprintManagementPage /></ProtectedRoute>
@@ -113,6 +140,9 @@ export default function App() {
       <Route path="/dsa/profile" element={
         <ProtectedRoute allowedRoles={['DSA']}><DSAProfilePage /></ProtectedRoute>
       } />
+      <Route path="/dsa/leads" element={
+        <ProtectedRoute allowedRoles={['DSA']}><DSALeadsPage /></ProtectedRoute>
+      } />
       <Route path="/dsa/*" element={
         <ProtectedRoute allowedRoles={['DSA']}><DSADashboard /></ProtectedRoute>
       } />
@@ -135,6 +165,8 @@ export default function App() {
       {/* ── 404 ───────────────────────────────────────────── */}
       <Route path="*" element={<NotFound />} />
     </Routes>
+    <CompareBar />
+    </>
   );
 }
 

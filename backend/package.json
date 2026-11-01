@@ -8,6 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "ts-node src/scripts/testPasswordSecurity.ts && ts-node src/scripts/testHttpRbac.ts && ts-node src/scripts/testTabIsolation.ts && ts-node src/scripts/testProfile.ts && ts-node src/scripts/testCoverImage.ts",
+    "seed:dev": "ts-node src/scripts/seedDevData.ts",
+    "test:customer": "ts-node src/scripts/testCustomerExperience.ts",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {

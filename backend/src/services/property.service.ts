@@ -9,6 +9,8 @@ import {
   storageService,
   validatePropertyImageFile,
 } from '../utils/storage';
+import { User, UserRole, AccountStatus } from '../models/User';
+import { escapeRegex, httpError } from '../utils/httpError';
 
 // ─── Input types ──────────────────────────────────────────────────────────────
 
@@ -76,6 +78,102 @@ export interface DiscoveryQuery {
   page?: number;
   limit?: number;
   sortBy?: 'price_asc' | 'price_desc' | 'newest' | 'area_asc';
+}
+
+// ─── Public-view helpers ──────────────────────────────────────────────────────
+// Everything a customer can see goes through these so that admin-only data,
+// non-public documents and the re-approval snapshot mechanics are handled once.
+
+/** A property is publicly visible when APPROVED, or while an approved listing is re-under-review. */
+export const PUBLIC_FILTER: Record<string, any> = {
+  $or: [{ status: PropertyStatus.APPROVED }, { pendingReApproval: true }],
+};
+
+const PRIVATE_FIELDS = [
+  'adminNotes',
+  'rejectionReason',
+  'reviewedBy',
+  'reviewedAt',
+  'submittedAt',
+  'nearbyAmenitiesCache',
+  'approvedSnapshot',
+  'pendingReApproval',
+  '__v',
+];
+
+export type PublicProperty = Record<string, any>;
+
+/** Convert a stored property (doc or lean object) to what customers are allowed to see. */
+export function toPublicView(raw: any): PublicProperty {
+  const base: Record<string, any> = typeof raw?.toObject === 'function' ? raw.toObject() : { ...raw };
+
+  // While an edit is awaiting re-approval, customers keep seeing the last approved version
+  const merged =
+    base.pendingReApproval && base.approvedSnapshot
+      ? {
+          ...base,
+          ...base.approvedSnapshot,
+          _id: base._id,
+          builderId: base.builderId,
+          documents: base.documents,
+          createdAt: base.createdAt,
+          updatedAt: base.updatedAt,
+        }
+      : base;
+
+  const view: Record<string, any> = { ...merged, status: PropertyStatus.APPROVED };
+  view.documents = (view.documents || []).filter((d: { isPublic?: boolean }) => d.isPublic);
+  for (const field of PRIVATE_FIELDS) delete view[field];
+  return view;
+}
+
+/** Fetch publicly visible properties matching `extra`, already converted to public views. */
+export async function listPublicProperties(
+  extra: Record<string, any> = {},
+  opts: { sort?: Record<string, 1 | -1>; skip?: number; limit?: number } = {}
+): Promise<PublicProperty[]> {
+  let query = Property.find({ $and: [PUBLIC_FILTER, extra] })
+    .populate('builderId', 'name')
+    .sort(opts.sort || { createdAt: -1 });
+  if (opts.skip) query = query.skip(opts.skip);
+  if (opts.limit) query = query.limit(opts.limit);
+  const rows = await query.lean();
+  return rows.map(toPublicView);
+}
+
+/** Public views for the given ids, in the order requested. Missing / non-public ids are dropped. */
+export async function listPublicByIds(ids: string[]): Promise<PublicProperty[]> {
+  const valid = [...new Set(ids)].filter((id) => mongoose.isValidObjectId(id));
+  if (valid.length === 0) return [];
+  const rows = await listPublicProperties({ _id: { $in: valid } });
+  const byId = new Map(rows.map((p) => [String(p._id), p]));
+  return valid.map((id) => byId.get(id)).filter((p): p is PublicProperty => Boolean(p));
+}
+
+/**
+ * How well a candidate [min,max] range fits a target band. 1 = candidate sits inside the band,
+ * 0.5 = partial overlap (at least one unit affordable), <0.5 = near miss, 0 = far away.
+ */
+export function rangeFit(candMin: number, candMax: number, bandMin: number, bandMax: number): number {
+  const lo = Math.max(candMin, bandMin);
+  const hi = Math.min(candMax, bandMax);
+  if (hi >= lo) {
+    const smallerSpan = Math.min(candMax - candMin, bandMax - bandMin);
+    if (smallerSpan <= 0) return 1;
+    return 0.5 + 0.5 * Math.min(1, (hi - lo) / smallerSpan);
+  }
+  const gap = lo - hi;
+  const ref = Math.max((bandMin + bandMax) / 2, 1);
+  return Math.max(0, 1 - gap / (0.6 * ref)) * 0.5;
+}
+
+/** Best price fit across a property's unit configurations (falls back to the project range). */
+export function propertyBudgetFit(p: PublicProperty, band: { min: number; max: number }): number {
+  const configs: Array<{ priceMin: number; priceMax: number }> = (p.bhkConfigurations || []).filter(
+    (c: { priceMin: number; priceMax: number }) => c.priceMax > 0
+  );
+  if (configs.length === 0) return rangeFit(p.minPrice, p.maxPrice, band.min, band.max);
+  return Math.max(...configs.map((c) => rangeFit(c.priceMin, c.priceMax, band.min, band.max)));
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -507,27 +605,55 @@ export async function adminReviewProperty(
 // ─── Public discovery ─────────────────────────────────────────────────────────
 
 export async function discoverProperties(query: DiscoveryQuery): Promise<{
-  properties: IProperty[];
+  properties: PublicProperty[];
   total: number;
   page: number;
   pages: number;
 }> {
-  const filter: Record<string, any> = {
-    // Show APPROVED properties, PLUS properties with pendingReApproval (they have an approvedSnapshot)
-    $or: [
-      { status: PropertyStatus.APPROVED },
-      { pendingReApproval: true },
-    ],
-  };
+  // Show APPROVED properties, PLUS properties with pendingReApproval (they have an approvedSnapshot)
+  const clauses: Record<string, any>[] = [PUBLIC_FILTER];
+  const filter: Record<string, any> = { $and: clauses };
 
-  // Text search
-  if (query.search?.trim()) {
-    filter.$text = { $search: query.search.trim() };
+  // Free-text search. Every word must match at least one of: project, title, locality,
+  // address, type, amenity, unit type, description or builder name. Partial words work
+  // ("thalt" finds Thaltej) and user input is escaped so it can never break the query.
+  const tokens = (query.search || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6);
+  if (tokens.length > 0) {
+    const patterns = tokens.map((t) => new RegExp(escapeRegex(t), 'i'));
+    const builders = await User.find({
+      role: UserRole.BUILDER,
+      accountStatus: AccountStatus.ACTIVE,
+      $or: patterns.map((re) => ({ name: re })),
+    })
+      .select('name')
+      .limit(100)
+      .lean();
+
+    for (const re of patterns) {
+      const builderIds = builders.filter((b) => re.test(b.name)).map((b) => b._id);
+      clauses.push({
+        $or: [
+          { projectName: re },
+          { title: re },
+          { locality: re },
+          { address: re },
+          { propertyType: re },
+          { amenities: re },
+          { 'bhkConfigurations.type': re },
+          { description: re },
+          ...(builderIds.length > 0 ? [{ builderId: { $in: builderIds } }] : []),
+        ],
+      });
+    }
   }
 
-  // Exact filters
-  if (query.locality) filter.locality = { $regex: new RegExp(query.locality, 'i') };
-  if (query.city) filter.city = { $regex: new RegExp(query.city, 'i') };
+  // Exact filters (anchored + escaped, case-insensitive)
+  if (query.locality) filter.locality = new RegExp(`^${escapeRegex(query.locality.trim())}$`, 'i');
+  if (query.city) filter.city = new RegExp(`^${escapeRegex(query.city.trim())}$`, 'i');
   if (query.propertyType) filter.propertyType = query.propertyType;
   if (query.constructionStatus) filter.constructionStatus = query.constructionStatus;
 
@@ -556,7 +682,7 @@ export async function discoverProperties(query: DiscoveryQuery): Promise<{
 
   const [rawProperties, total] = await Promise.all([
     Property.find(filter)
-      .populate('builderId', 'name email')
+      .populate('builderId', 'name')
       .sort(sort)
       .skip(skip)
       .limit(limit)
@@ -564,37 +690,18 @@ export async function discoverProperties(query: DiscoveryQuery): Promise<{
     Property.countDocuments(filter),
   ]);
 
-  // For pendingReApproval properties, serve the approvedSnapshot as the public-facing data
-  const properties = rawProperties.map((p: any) => {
-    if (p.pendingReApproval && p.approvedSnapshot) {
-      return {
-        ...p,
-        ...p.approvedSnapshot,
-        _id: p._id,
-        builderId: p.builderId,
-        status: PropertyStatus.APPROVED, // Present as APPROVED to customers
-        pendingReApproval: undefined,
-        approvedSnapshot: undefined,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
-      };
-    }
-    return p;
-  });
+  // Customers only ever see the public view (last approved snapshot, no admin-only data)
+  const properties = rawProperties.map(toPublicView);
 
-  return { properties: properties as IProperty[], total, page, pages: Math.ceil(total / limit) };
+  return { properties, total, page, pages: Math.ceil(total / limit) };
 }
 
-export async function getPublicProperty(id: string): Promise<IProperty> {
+export async function getPublicProperty(id: string): Promise<PublicProperty> {
   assertValidId(id);
   // Accept both APPROVED properties and pendingReApproval ones (serve their snapshot)
-  const property = await Property.findOne({
-    _id: id,
-    $or: [
-      { status: PropertyStatus.APPROVED },
-      { pendingReApproval: true },
-    ],
-  }).populate('builderId', 'name email');
+  const property = await Property.findOne({ _id: id, ...PUBLIC_FILTER })
+    .populate('builderId', 'name')
+    .lean();
 
   if (!property) {
     const err: any = new Error('Property not found');
@@ -602,22 +709,154 @@ export async function getPublicProperty(id: string): Promise<IProperty> {
     throw err;
   }
 
-  // Serve the last-approved snapshot if the current version is under re-review
-  if (property.pendingReApproval && property.approvedSnapshot) {
-    const snap = property.approvedSnapshot as any;
-    // Merge snapshot fields over the document, preserve identity fields
-    return {
-      ...property.toObject(),
-      ...snap,
-      _id: property._id,
-      builderId: property.builderId,
-      status: PropertyStatus.APPROVED,
-      pendingReApproval: false,
-      approvedSnapshot: undefined,
-    } as unknown as IProperty;
+  return toPublicView(property);
+}
+
+// ─── Public discovery extras ──────────────────────────────────────────────────
+
+export interface SearchSuggestions {
+  projects: Array<{ id: string; name: string; locality: string }>;
+  localities: Array<{ name: string; count: number }>;
+  builders: Array<{ name: string; count: number }>;
+}
+
+/** Typeahead for the search box: matching projects, localities and builders. */
+export async function suggestSearch(rawQuery: string): Promise<SearchSuggestions> {
+  const q = rawQuery.trim().slice(0, 60);
+  const empty: SearchSuggestions = { projects: [], localities: [], builders: [] };
+  if (q.length < 2) return empty;
+  const re = new RegExp(escapeRegex(q), 'i');
+
+  const [projects, localities, builderUsers] = await Promise.all([
+    Property.find({ $and: [PUBLIC_FILTER, { $or: [{ projectName: re }, { title: re }] }] })
+      .select('projectName locality')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean(),
+    Property.aggregate([
+      { $match: { $and: [PUBLIC_FILTER, { locality: re }] } },
+      { $group: { _id: '$locality', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 5 },
+    ]),
+    User.find({ role: UserRole.BUILDER, accountStatus: AccountStatus.ACTIVE, name: re })
+      .select('name')
+      .limit(8)
+      .lean(),
+  ]);
+
+  let builders: SearchSuggestions['builders'] = [];
+  if (builderUsers.length > 0) {
+    const counts: Array<{ _id: mongoose.Types.ObjectId; count: number }> = await Property.aggregate([
+      { $match: { $and: [PUBLIC_FILTER, { builderId: { $in: builderUsers.map((b) => b._id) } }] } },
+      { $group: { _id: '$builderId', count: { $sum: 1 } } },
+    ]);
+    const countById = new Map(counts.map((c) => [String(c._id), c.count]));
+    builders = builderUsers
+      .filter((b) => countById.has(String(b._id)))
+      .map((b) => ({ name: b.name, count: countById.get(String(b._id)) || 0 }))
+      .slice(0, 4);
   }
 
-  return property;
+  return {
+    projects: projects.map((p) => ({ id: String(p._id), name: p.projectName, locality: p.locality })),
+    localities: localities.map((l: { _id: string; count: number }) => ({ name: l._id, count: l.count })),
+    builders,
+  };
+}
+
+export interface LocalityStat {
+  locality: string;
+  count: number;
+  minPrice: number;
+  maxPrice: number;
+  avgPricePerSqFt: number;
+  coverImageUrl?: string;
+}
+
+/** Live per-locality inventory used by the "Explore localities" section. */
+export async function getLocalityStats(): Promise<LocalityStat[]> {
+  const rows: Array<{
+    _id: string;
+    count: number;
+    minPrice: number;
+    maxPrice: number;
+    avgPricePerSqFt: number;
+    coverImageUrl?: string;
+  }> = await Property.aggregate([
+    { $match: PUBLIC_FILTER },
+    { $sort: { createdAt: -1 } },
+    {
+      $addFields: {
+        psf: {
+          $let: {
+            vars: {
+              price: { $avg: ['$minPrice', '$maxPrice'] },
+              area: { $avg: ['$minArea', '$maxArea'] },
+            },
+            in: { $cond: [{ $gt: ['$$area', 0] }, { $divide: ['$$price', '$$area'] }, null] },
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: '$locality',
+        count: { $sum: 1 },
+        minPrice: { $min: '$minPrice' },
+        maxPrice: { $max: '$maxPrice' },
+        avgPricePerSqFt: { $avg: '$psf' },
+        coverImageUrl: { $first: '$coverImageUrl' },
+      },
+    },
+    { $sort: { count: -1, _id: 1 } },
+  ]);
+
+  return rows.map((r) => ({
+    locality: r._id,
+    count: r.count,
+    minPrice: r.minPrice,
+    maxPrice: r.maxPrice,
+    avgPricePerSqFt: Math.round(r.avgPricePerSqFt || 0),
+    coverImageUrl: r.coverImageUrl,
+  }));
+}
+
+function jaccard(a: string[], b: string[]): number {
+  if (a.length === 0 && b.length === 0) return 0;
+  const A = new Set(a.map((s) => s.toLowerCase()));
+  const B = new Set(b.map((s) => s.toLowerCase()));
+  let inter = 0;
+  A.forEach((x) => { if (B.has(x)) inter += 1; });
+  return inter / (A.size + B.size - inter);
+}
+
+/** Content-based "similar properties" — locality, type, price overlap, unit mix, amenities. */
+export async function getSimilarProperties(id: string, limit = 6): Promise<PublicProperty[]> {
+  const base = await getPublicProperty(id);
+  const candidates = await listPublicProperties({ _id: { $ne: base._id } }, { limit: 300 });
+  const baseBhk: string[] = (base.bhkConfigurations || []).map((c: { type: string }) => c.type);
+  const baseBand = { min: base.minPrice * 0.85, max: base.maxPrice * 1.15 };
+
+  return candidates
+    .map((c) => {
+      const score =
+        0.30 * (c.locality === base.locality ? 1 : 0) +
+        0.15 * (c.propertyType === base.propertyType ? 1 : 0) +
+        0.25 * propertyBudgetFit(c, baseBand) +
+        0.15 * jaccard(baseBhk, (c.bhkConfigurations || []).map((x: { type: string }) => x.type)) +
+        0.05 * (c.constructionStatus === base.constructionStatus ? 1 : 0) +
+        0.10 * jaccard(base.amenities || [], c.amenities || []);
+      return { ...c, similarity: Math.round(score * 100) };
+    })
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, limit);
+}
+
+/** Side-by-side comparison — up to 4 public properties, in the order requested. */
+export async function getPropertiesForCompare(ids: string[]): Promise<PublicProperty[]> {
+  if (ids.length < 2) throw httpError(400, 'Select at least two properties to compare');
+  return listPublicByIds(ids.slice(0, 4));
 }
 
 // ─── Admin property counts (for dashboard stats) ──────────────────────────────

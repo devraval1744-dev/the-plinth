@@ -1,18 +1,22 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import Navbar from '../../components/layout/Navbar';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import AlertMessage from '../../components/ui/AlertMessage';
+import CustomerMobileNav from '../../components/layout/CustomerMobileNav';
+import PropertyCard from '../../components/property/PropertyCard';
+import EmptyState, { SectionError } from '../../components/ui/EmptyState';
+import { CardGridSkeleton } from '../../components/ui/Skeleton';
+import { useAuth } from '../../context/AuthContext';
+import { useAsync } from '../../hooks/useAsync';
 import { discoverPropertiesApi } from '../../api/properties.api';
-import { getErrorMessage } from '../../api/client';
-import { formatPriceRange, getBuilderName, getPrimaryImage } from '../../utils/format';
+import { recordSearchApi } from '../../api/customer.api';
+import { formatPriceCompact } from '../../utils/format';
 import {
   PROPERTY_TYPES,
   CONSTRUCTION_STATUSES,
   BHK_TYPES,
   AHMEDABAD_LOCALITIES,
 } from '../../types';
-import type { Property, PropertyDiscoveryQuery } from '../../types';
+import type { PropertyDiscoveryQuery, SearchQuery } from '../../types';
 
 const PRICE_OPTIONS = [
   { label: 'Any', value: '' },
@@ -29,287 +33,252 @@ const SORT_OPTIONS = [
   { label: 'Price: Low to High', value: 'price_asc' },
   { label: 'Price: High to Low', value: 'price_desc' },
   { label: 'Area: Smallest First', value: 'area_asc' },
-];
+] as const;
 
-function PropertyCard({ property, onClick }: { property: Property; onClick: () => void }) {
-  const primaryImage = getPrimaryImage(property.images, property.coverImageUrl);
-  const bhkLabels = [...new Set(property.bhkConfigurations.map((b) => b.type))].join(' · ');
-  const builderName = getBuilderName(property.builderId as any);
+type SortKey = (typeof SORT_OPTIONS)[number]['value'];
 
-  return (
-    <div onClick={onClick} className="card-hover overflow-hidden group">
-      {/* Image */}
-      <div className="h-48 bg-navy-100 relative overflow-hidden">
-        {primaryImage ? (
-          <img
-            src={primaryImage}
-            alt={property.projectName}
-            onError={(e) => {
-              // Safe fallback: try frontend local demo fallback if uploads path fails or show fallback
-              const target = e.currentTarget;
-              if (!target.src.includes('/demo/demo_property_1.jpg')) {
-                target.src = '/demo/demo_property_1.jpg';
-              } else {
-                target.style.display = 'none';
-              }
-            }}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <span className="text-4xl opacity-30">🏗️</span>
-          </div>
-        )}
-        <div className="absolute top-3 left-3">
-          <span className={`badge text-xs ${
-            property.constructionStatus === 'Ready to Move' ? 'bg-green-100 text-green-800'
-            : property.constructionStatus === 'New Launch' ? 'bg-gold-500 text-white'
-            : 'bg-navy-800/80 text-cream-100'
-          }`}>{property.constructionStatus}</span>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-5 py-4 space-y-2">
-        <div>
-          <h3 className="font-display font-semibold text-navy-900 text-base leading-snug line-clamp-1">
-            {property.projectName}
-          </h3>
-          <p className="text-xs text-navy-500 mt-0.5">{property.title}</p>
-        </div>
-
-        <div className="flex items-center gap-1 text-xs text-navy-500">
-          <span>📍</span>
-          <span>{property.locality}, {property.city}</span>
-        </div>
-
-        {bhkLabels && (
-          <p className="text-xs text-navy-600 font-medium">{bhkLabels}</p>
-        )}
-
-        <div className="flex items-center justify-between pt-1">
-          <div>
-            <p className="price-text-sm">
-              {formatPriceRange(property.minPrice, property.maxPrice)}
-            </p>
-            <p className="text-xs text-navy-400">{property.minArea}–{property.maxArea} sq.ft</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-navy-500">{builderName}</p>
-            {property.availableUnits > 0 && (
-              <p className="text-xs text-green-600 font-medium">{property.availableUnits} units left</p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+const PAGE_SIZE = 12;
 
 export default function PropertyDiscoveryPage() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { user, isAuthenticated } = useAuth();
+  // The URL is the single source of truth: shareable, refresh-safe, and the back button works
+  const [params, setParams] = useSearchParams();
 
-  const [search, setSearch] = useState(searchParams.get('search') || '');
-  const [filters, setFilters] = useState<PropertyDiscoveryQuery>({
-    locality: searchParams.get('locality') || '',
-    propertyType: searchParams.get('propertyType') || '',
-    bhk: searchParams.get('bhk') || '',
-    maxPrice: searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined,
-    constructionStatus: searchParams.get('constructionStatus') || '',
-    sortBy: (searchParams.get('sortBy') as any) || 'newest',
-  });
+  const search = params.get('search') || '';
+  const locality = params.get('locality') || '';
+  const propertyType = params.get('propertyType') || '';
+  const bhk = params.get('bhk') || '';
+  const constructionStatus = params.get('constructionStatus') || '';
+  const maxPriceRaw = Number(params.get('maxPrice'));
+  const maxPrice = Number.isFinite(maxPriceRaw) && maxPriceRaw > 0 ? maxPriceRaw : undefined;
+  const sortParam = params.get('sortBy') as SortKey | null;
+  const sortBy: SortKey = SORT_OPTIONS.some((o) => o.value === sortParam) ? (sortParam as SortKey) : 'newest';
+  const page = Math.max(1, Number(params.get('page')) || 1);
 
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState(1);
-  const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [searchInput, setSearchInput] = useState(search);
+  useEffect(() => { setSearchInput(search); }, [search]);
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [page]);
 
-  const fetchProperties = useCallback(async (p = 1) => {
-    setIsLoading(true); setError('');
-    try {
-      const query: PropertyDiscoveryQuery = {
-        ...filters,
-        search: search.trim() || undefined,
-        page: p,
-        limit: 12,
-      };
-      // Remove empty strings
-      (Object.keys(query) as (keyof PropertyDiscoveryQuery)[]).forEach((k) => {
-        if (query[k] === '' || query[k] === undefined) delete query[k];
-      });
-      const result = await discoverPropertiesApi(query);
-      setProperties(result.properties as Property[]);
-      setTotal(result.total);
-      setPages(result.pages);
-      setPage(result.page);
-    } catch (e) { setError(getErrorMessage(e)); }
-    finally { setIsLoading(false); }
-  }, [filters, search]);
+  const activeFilterCount = [locality, propertyType, bhk, constructionStatus, maxPrice, search.trim()].filter(Boolean).length;
+  const [showFilters, setShowFilters] = useState(activeFilterCount > 0);
 
-  useEffect(() => { fetchProperties(1); }, [filters]);
-
-  const handleSearch = (e: FormEvent) => {
-    e.preventDefault();
-    fetchProperties(1);
+  const update = (changes: Record<string, string | undefined>, keepPage = false) => {
+    const next = new URLSearchParams(params);
+    Object.entries(changes).forEach(([k, v]) => { if (v) next.set(k, v); else next.delete(k); });
+    if (!keepPage) next.delete('page');
+    setParams(next);
   };
 
-  const setFilter = (key: keyof PropertyDiscoveryQuery, value: string | number | undefined) => {
-    setFilters((prev) => ({ ...prev, [key]: value || undefined }));
+  const result = useAsync(() => {
+    const query: PropertyDiscoveryQuery = {
+      search: search.trim() || undefined,
+      locality: locality || undefined,
+      propertyType: propertyType || undefined,
+      bhk: bhk || undefined,
+      constructionStatus: constructionStatus || undefined,
+      maxPrice,
+      sortBy,
+      page,
+      limit: PAGE_SIZE,
+    };
+    return discoverPropertiesApi(query);
+  }, [params.toString()]);
+
+  // Tell the recommender what this customer is looking for (once per distinct search)
+  const lastRecorded = useRef('');
+  useEffect(() => {
+    if (!result.data || user?.role !== 'CUSTOMER' || page > 1) return;
+    const q: SearchQuery = {
+      search: search.trim().length >= 2 ? search.trim() : undefined,
+      locality: locality || undefined,
+      propertyType: propertyType || undefined,
+      bhk: bhk || undefined,
+      maxPrice,
+      constructionStatus: constructionStatus || undefined,
+    };
+    if (!Object.values(q).some((v) => v !== undefined)) return;
+    const signature = JSON.stringify(q);
+    if (lastRecorded.current === signature) return;
+    lastRecorded.current = signature;
+    recordSearchApi(q).catch(() => { /* personalisation is best-effort */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result.data]);
+
+  const submitSearch = (e: FormEvent) => {
+    e.preventDefault();
+    update({ search: searchInput.trim() || undefined });
   };
 
   const clearFilters = () => {
-    setSearch('');
-    setFilters({ sortBy: 'newest' });
+    setSearchInput('');
+    setParams(new URLSearchParams());
   };
 
-  const activeFilterCount = Object.entries(filters).filter(
-    ([k, v]) => k !== 'sortBy' && v !== undefined && v !== ''
-  ).length + (search.trim() ? 1 : 0);
+  const chips: { label: string; clear: () => void }[] = [];
+  if (search.trim()) chips.push({ label: `“${search.trim()}”`, clear: () => update({ search: undefined }) });
+  if (locality) chips.push({ label: locality, clear: () => update({ locality: undefined }) });
+  if (propertyType) chips.push({ label: propertyType, clear: () => update({ propertyType: undefined }) });
+  if (bhk) chips.push({ label: bhk, clear: () => update({ bhk: undefined }) });
+  if (constructionStatus) chips.push({ label: constructionStatus, clear: () => update({ constructionStatus: undefined }) });
+  if (maxPrice) chips.push({ label: `Under ${formatPriceCompact(maxPrice)}`, clear: () => update({ maxPrice: undefined }) });
+
+  const properties = result.data?.properties ?? [];
+  const total = result.data?.total ?? 0;
+  const pages = result.data?.pages ?? 1;
 
   return (
     <div className="min-h-screen bg-cream-200">
       <Navbar />
 
-      <main className="page-container py-8 space-y-6 pb-24">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <main className="page-container py-8 space-y-6 pb-28 sm:pb-12">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="font-display text-3xl font-semibold text-navy-900">Find Your Home</h1>
-            <p className="text-navy-500 mt-1">
-              {total > 0 ? `${total} approved propert${total === 1 ? 'y' : 'ies'} available` : 'Discover properties in Ahmedabad'}
+            <p className="text-navy-500 mt-1" aria-live="polite">
+              {result.loading ? 'Searching…'
+                : total > 0 ? `${total} approved propert${total === 1 ? 'y' : 'ies'} found`
+                : 'Discover properties in Ahmedabad'}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => fetchProperties(page)}
-            disabled={isLoading}
-            className="btn btn-secondary text-xs px-3 py-2 flex items-center gap-1.5"
-            title="Refresh approved properties"
+            onClick={result.reload}
+            disabled={result.loading}
+            className="btn btn-secondary text-xs px-3 py-2"
+            title="Refresh results"
           >
-            <span>🔄</span>
-            <span>Refresh</span>
+            <span aria-hidden="true">🔄</span> Refresh
           </button>
         </div>
 
+        {!isAuthenticated && (
+          <p className="text-sm text-navy-600 bg-white border border-navy-100 rounded-xl px-4 py-3">
+            <Link to="/login" className="font-semibold text-navy-800 underline">Log in</Link> or{' '}
+            <Link to="/signup" className="font-semibold text-navy-800 underline">sign up</Link> to save properties,
+            book site visits and get recommendations tailored to you.
+          </p>
+        )}
+
         {/* Search + filter bar */}
         <div className="card px-5 py-4 space-y-4">
-          <form onSubmit={handleSearch} className="flex gap-3">
-            <input
-              className="input flex-1"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by project, locality or builder…"
-            />
-            <button type="submit" className="btn-primary whitespace-nowrap">Search</button>
-            <button
-              type="button"
-              onClick={() => setShowFilters((v) => !v)}
-              className={`btn-secondary whitespace-nowrap flex items-center gap-1.5 ${activeFilterCount > 0 ? 'border-gold-500 text-gold-600' : ''}`}
-            >
-              Filters {activeFilterCount > 0 && <span className="bg-gold-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">{activeFilterCount}</span>}
-            </button>
+          <form onSubmit={submitSearch} className="flex flex-col sm:flex-row gap-3" role="search">
+            <label className="flex-1">
+              <span className="sr-only">Search properties</span>
+              <input
+                className="input"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search by project, locality or builder…"
+              />
+            </label>
+            <div className="flex gap-3">
+              <button type="submit" className="btn-primary whitespace-nowrap">Search</button>
+              <button
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                aria-expanded={showFilters}
+                className={`btn-secondary whitespace-nowrap flex items-center gap-1.5 ${activeFilterCount > 0 ? 'border-gold-500 text-gold-600' : ''}`}
+              >
+                Filters
+                {activeFilterCount > 0 && (
+                  <span className="bg-gold-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">{activeFilterCount}</span>
+                )}
+              </button>
+            </div>
           </form>
 
           {showFilters && (
             <div className="border-t border-navy-100 pt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              <div>
-                <label className="label text-xs">Locality</label>
-                <select className="input text-sm" value={filters.locality || ''}
-                  onChange={(e) => setFilter('locality', e.target.value)}>
+              <label>
+                <span className="label text-xs">Locality</span>
+                <select className="input text-sm" value={locality} onChange={(e) => update({ locality: e.target.value || undefined })}>
                   <option value="">Any</option>
                   {AHMEDABAD_LOCALITIES.map((l) => <option key={l} value={l}>{l}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label text-xs">Property type</label>
-                <select className="input text-sm" value={filters.propertyType || ''}
-                  onChange={(e) => setFilter('propertyType', e.target.value)}>
+              </label>
+              <label>
+                <span className="label text-xs">Property type</span>
+                <select className="input text-sm" value={propertyType} onChange={(e) => update({ propertyType: e.target.value || undefined })}>
                   <option value="">Any</option>
                   {PROPERTY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label text-xs">BHK</label>
-                <select className="input text-sm" value={filters.bhk || ''}
-                  onChange={(e) => setFilter('bhk', e.target.value)}>
+              </label>
+              <label>
+                <span className="label text-xs">BHK</span>
+                <select className="input text-sm" value={bhk} onChange={(e) => update({ bhk: e.target.value || undefined })}>
                   <option value="">Any</option>
                   {BHK_TYPES.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label text-xs">Max price</label>
-                <select className="input text-sm" value={filters.maxPrice?.toString() || ''}
-                  onChange={(e) => setFilter('maxPrice', e.target.value ? Number(e.target.value) : undefined)}>
+              </label>
+              <label>
+                <span className="label text-xs">Max price</span>
+                <select className="input text-sm" value={maxPrice?.toString() || ''} onChange={(e) => update({ maxPrice: e.target.value || undefined })}>
                   {PRICE_OPTIONS.map(({ label, value }) => <option key={value} value={value}>{label}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label text-xs">Status</label>
-                <select className="input text-sm" value={filters.constructionStatus || ''}
-                  onChange={(e) => setFilter('constructionStatus', e.target.value)}>
+              </label>
+              <label>
+                <span className="label text-xs">Status</span>
+                <select className="input text-sm" value={constructionStatus} onChange={(e) => update({ constructionStatus: e.target.value || undefined })}>
                   <option value="">Any</option>
                   {CONSTRUCTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
-              </div>
-
-              <div className="col-span-2 sm:col-span-3 lg:col-span-5 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <label className="label text-xs mb-0">Sort by</label>
-                  <select className="input text-sm w-auto" value={filters.sortBy || 'newest'}
-                    onChange={(e) => setFilter('sortBy', e.target.value)}>
-                    {SORT_OPTIONS.map(({ label, value }) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                </div>
-                {activeFilterCount > 0 && (
-                  <button onClick={clearFilters} className="text-xs text-navy-500 hover:text-red-600 transition-colors">
-                    Clear all filters
-                  </button>
-                )}
-              </div>
+              </label>
             </div>
           )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-navy-100 pt-3">
+            <div className="flex flex-wrap items-center gap-2 min-h-[1.75rem]">
+              {chips.map((c) => (
+                <span key={c.label} className="inline-flex items-center gap-1 bg-navy-100 text-navy-800 rounded-full pl-3 pr-1.5 py-1 text-xs font-medium">
+                  {c.label}
+                  <button onClick={c.clear} className="w-4 h-4 rounded-full hover:bg-navy-200 leading-none" aria-label={`Remove filter ${c.label}`}>×</button>
+                </span>
+              ))}
+              {chips.length > 1 && (
+                <button onClick={clearFilters} className="text-xs text-navy-500 hover:text-red-600 transition-colors">Clear all</button>
+              )}
+            </div>
+            <label className="flex items-center gap-2 text-sm text-navy-600">
+              Sort by
+              <select className="input text-sm w-auto py-1.5" value={sortBy} onChange={(e) => update({ sortBy: e.target.value === 'newest' ? undefined : e.target.value })}>
+                {SORT_OPTIONS.map(({ label, value }) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+          </div>
         </div>
 
-        {error && <AlertMessage type="error" message={error} />}
-
         {/* Results */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-24"><LoadingSpinner size="lg" /></div>
+        {result.loading ? (
+          <CardGridSkeleton count={6} />
+        ) : result.error ? (
+          <SectionError message={result.error} onRetry={result.reload} />
         ) : properties.length === 0 ? (
-          <div className="text-center py-20 space-y-3">
-            <div className="text-5xl">🏠</div>
-            <p className="font-display text-xl font-semibold text-navy-700">No properties found</p>
-            <p className="text-navy-500 text-sm">Try adjusting your search or filters.</p>
-            {activeFilterCount > 0 && (
-              <button onClick={clearFilters} className="btn-secondary btn mt-2">Clear Filters</button>
-            )}
-          </div>
+          <EmptyState
+            icon="🏠"
+            title="No properties found"
+            message="Try adjusting your search or removing a filter."
+            action={activeFilterCount > 0 ? <button onClick={clearFilters} className="btn-secondary">Clear filters</button> : undefined}
+          />
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {properties.map((p) => (
-                <PropertyCard key={p._id} property={p}
-                  onClick={() => navigate(`/properties/${p._id}`)} />
-              ))}
+              {properties.map((p) => <PropertyCard key={p._id} property={p} />)}
             </div>
 
-            {/* Pagination */}
             {pages > 1 && (
-              <div className="flex items-center justify-center gap-2 pt-4">
-                <button disabled={page <= 1} onClick={() => fetchProperties(page - 1)}
+              <nav className="flex items-center justify-center gap-2 pt-4" aria-label="Pagination">
+                <button disabled={page <= 1} onClick={() => update({ page: String(page - 1) }, true)}
                   className="btn-secondary btn px-4 py-2 disabled:opacity-40">← Prev</button>
                 <span className="text-sm text-navy-600">Page {page} of {pages}</span>
-                <button disabled={page >= pages} onClick={() => fetchProperties(page + 1)}
+                <button disabled={page >= pages} onClick={() => update({ page: String(page + 1) }, true)}
                   className="btn-secondary btn px-4 py-2 disabled:opacity-40">Next →</button>
-              </div>
+              </nav>
             )}
           </>
         )}
       </main>
+
+      {user?.role === 'CUSTOMER' && <CustomerMobileNav />}
     </div>
   );
 }

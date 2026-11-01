@@ -1,13 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/layout/Navbar';
 import { useAuth } from '../../context/AuthContext';
 import { getMyPropertiesApi } from '../../api/properties.api';
+import { getBuilderVisitCountsApi } from '../../api/visits.api';
 
 export default function BuilderDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [navigatingBlueprints, setNavigatingBlueprints] = useState(false);
+  const [pendingVisits, setPendingVisits] = useState(0);
+
+  useEffect(() => {
+    getBuilderVisitCountsApi().then((c) => setPendingVisits(c.pending)).catch(() => { /* badge is best-effort */ });
+  }, []);
 
   const handleBlueprintsClick = async () => {
     if (navigatingBlueprints) return;
@@ -79,6 +85,9 @@ export default function BuilderDashboard() {
               icon="📅"
               title="Site Visits"
               description="Review and manage customer site visit requests."
+              active
+              badge={pendingVisits > 0 ? `${pendingVisits} awaiting reply` : undefined}
+              onClick={() => navigate('/builder/visits')}
             />
             <ModuleCard
               icon="📊"
@@ -109,12 +118,14 @@ function ModuleCard({
   title,
   description,
   active,
+  badge,
   onClick,
 }: {
   icon: string;
   title: string;
   description: string;
   active?: boolean;
+  badge?: string;
   onClick?: () => void;
 }) {
   return (
@@ -128,6 +139,7 @@ function ModuleCard({
     >
       <div className="flex items-start justify-between mb-3">
         <span className="text-3xl">{icon}</span>
+        {badge && <span className="badge bg-gold-500 text-white">{badge}</span>}
       </div>
       <h3 className="font-semibold text-navy-800 mb-1">{title}</h3>
       <p className="text-sm text-navy-500">{description}</p>
@@ -142,7 +154,7 @@ function BuilderMobileNav({ onBlueprintsClick }: { onBlueprintsClick: () => void
     { icon: '📊', label: 'Dashboard', active: true, action: () => navigate('/builder') },
     { icon: '📋', label: 'Listings', active: true, action: () => navigate('/builder/properties') },
     { icon: '📐', label: 'Blueprints', active: true, action: onBlueprintsClick },
-    { icon: '📅', label: 'Visits', active: false, action: undefined },
+    { icon: '📅', label: 'Visits', active: true, action: () => navigate('/builder/visits') },
     { icon: '⋯', label: 'More', active: false, action: undefined },
   ];
 

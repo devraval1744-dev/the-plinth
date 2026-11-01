@@ -95,6 +95,44 @@ export async function requireAuth(
   }
 }
 
+// ─── optionalAuth ────────────────────────────────────────────────────────────
+
+/**
+ * Identifies the caller when a valid Bearer token is present, but never rejects.
+ * Used on public endpoints that personalise or record activity for signed-in customers.
+ *
+ * Only the Authorization header is honoured (not the shared httpOnly cookie) so that a
+ * tab which isn't signed in stays anonymous even if another tab of the browser is.
+ */
+export async function optionalAuth(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return next();
+
+    const payload = jwt.verify(authHeader.slice(7), env.JWT_SECRET) as JwtPayload;
+    const user = await User.findById(payload.userId).select('+role +accountStatus +mustChangePassword');
+    if (
+      user &&
+      user.accountStatus !== AccountStatus.SUSPENDED &&
+      user.accountStatus !== AccountStatus.REJECTED
+    ) {
+      req.user = {
+        id: user._id.toString(),
+        role: user.role,
+        accountStatus: user.accountStatus,
+        mustChangePassword: user.mustChangePassword ?? false,
+      };
+    }
+  } catch {
+    // Invalid / expired token on a public route: treat as anonymous
+  }
+  next();
+}
+
 // ─── requireRole ─────────────────────────────────────────────────────────────
 
 /**

@@ -6,6 +6,10 @@ import type {
   PaginatedProperties,
   PropertyReviewPayload,
   ApiResponse,
+  SearchSuggestions,
+  TrendingProperty,
+  LocalityStat,
+  SimilarProperty,
 } from '../types';
 
 // ─── Builder ──────────────────────────────────────────────────────────────────
@@ -69,6 +73,40 @@ export async function discoverPropertiesApi(
 export async function getPublicPropertyApi(id: string): Promise<Property> {
   const res = await apiClient.get<ApiResponse<{ property: Property }>>(`/properties/${id}`);
   return res.data.data!.property;
+}
+
+export async function suggestSearchApi(q: string): Promise<SearchSuggestions> {
+  const res = await apiClient.get<ApiResponse<SearchSuggestions>>('/properties/suggest', { params: { q } });
+  return res.data.data!;
+}
+
+export async function getTrendingApi(
+  limit = 8
+): Promise<{ properties: TrendingProperty[]; hasActivity: boolean }> {
+  const res = await apiClient.get<ApiResponse<{ properties: TrendingProperty[]; hasActivity: boolean }>>(
+    '/properties/trending',
+    { params: { limit } }
+  );
+  return res.data.data!;
+}
+
+export async function getLocalityStatsApi(): Promise<LocalityStat[]> {
+  const res = await apiClient.get<ApiResponse<{ localities: LocalityStat[] }>>('/properties/localities');
+  return res.data.data!.localities;
+}
+
+export async function getSimilarPropertiesApi(id: string, limit = 6): Promise<SimilarProperty[]> {
+  const res = await apiClient.get<ApiResponse<{ properties: SimilarProperty[] }>>(`/properties/${id}/similar`, {
+    params: { limit },
+  });
+  return res.data.data!.properties;
+}
+
+export async function comparePropertiesApi(ids: string[]): Promise<Property[]> {
+  const res = await apiClient.get<ApiResponse<{ properties: Property[] }>>('/properties/compare', {
+    params: { ids: ids.join(',') },
+  });
+  return res.data.data!.properties;
 }
 
 export async function getNearbyAmenitiesApi(id: string, radius = 3): Promise<import('../types').NearbyAmenitiesData> {

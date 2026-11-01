@@ -6,6 +6,10 @@ import adminRoutes from './admin.routes';
 import adminPropertyRoutes from './admin.property.routes';
 import propertyRoutes from './property.routes';
 import blueprintRoutes from './blueprint.routes';
+import customerRoutes from './customer.routes';
+import visitRoutes from './visit.routes';
+import loanRoutes from './loan.routes';
+import notificationRoutes from './notification.routes';
 import { requireAuth, requireRole } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 
@@ -41,6 +45,22 @@ router.use('/properties', propertyRoutes);
 // Mounted with mergeParams so :propertyId flows through
 
 router.use('/properties/:propertyId/blueprints', blueprintRoutes);
+
+// ─── Customer experience: dashboard, recommendations, saved, activity ────────
+
+router.use('/customer', customerRoutes);
+
+// ─── Site visits (customer requests, builder responds) ───────────────────────
+
+router.use('/visits', visitRoutes);
+
+// ─── Loan assistance (customer requests, DSA handles) ────────────────────────
+
+router.use('/loans', loanRoutes);
+
+// ─── In-app notifications (all roles) ────────────────────────────────────────
+
+router.use('/notifications', notificationRoutes);
 
 // ─── Admin — applications (requireAuth + ADMIN) ───────────────────────────────
 

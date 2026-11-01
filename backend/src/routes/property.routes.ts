@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import multer from 'multer';
 import * as PropController from '../controllers/property.controller';
-import { requireAuth, requireRole, requirePasswordChangeCompleted } from '../middleware/auth.middleware';
+import { requireAuth, requireRole, requirePasswordChangeCompleted, optionalAuth } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 import {
   ALLOWED_PROPERTY_IMAGE_MIMETYPES,
@@ -96,6 +96,12 @@ const propertyUpdateValidation = [
 
 router.get('/', PropController.discoverProperties);
 
+// Named public endpoints — declared before the /:id routes so they are never read as an id
+router.get('/suggest', PropController.suggest);
+router.get('/trending', PropController.trending);
+router.get('/localities', PropController.localityStats);
+router.get('/compare', PropController.compare);
+
 // ─── Builder routes (requireAuth + BUILDER role) ──────────────────────────────
 // Specific named paths must be declared before /:id to avoid conflicts
 
@@ -153,9 +159,13 @@ router.delete(
 // ─── GET /:id/nearby-amenities — public for APPROVED (respects snapshot) ───
 router.get('/:id/nearby-amenities', PropController.getNearbyAmenities);
 
+// ─── GET /:id/similar — public, content-based "more like this" ───
+router.get('/:id/similar', PropController.similar);
+
 // ─── GET /:id — public for APPROVED, authenticated builder for own property ───
-// The controller logic differentiates via query param `?view=builder`
-router.get('/:id', async (req, res, next) => {
+// The controller logic differentiates via query param `?view=builder`.
+// optionalAuth lets the public branch recognise signed-in customers (for activity tracking).
+router.get('/:id', optionalAuth, async (req, res, next) => {
   if (req.query.view === 'builder') {
     // Authenticated builder wants to see their own draft/etc property
     requireAuth(req, res, async () => {

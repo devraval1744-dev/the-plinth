@@ -28,7 +28,9 @@ export default function LoginPage() {
   const [error, setError]       = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || null;
+  // Return to where the user came from, keeping their search filters (?locality=…) intact
+  const fromLocation = (location.state as { from?: { pathname: string; search?: string } })?.from;
+  const from = fromLocation ? `${fromLocation.pathname}${fromLocation.search || ''}` : null;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

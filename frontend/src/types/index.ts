@@ -258,7 +258,8 @@ export interface PropertyDocument {
 
 export interface Property {
   _id: string;
-  builderId: string | { _id: string; name: string; email: string; phone?: string };
+  // Public endpoints only expose the builder's name; owner/admin views include contact details
+  builderId: string | { _id: string; name: string; email?: string; phone?: string };
   title: string;
   projectName: string;
   description: string;
@@ -523,3 +524,204 @@ export interface NearbyAmenitiesData {
   message?: string;
 }
 
+
+// ─── Customer experience ─────────────────────────────────────────────────────
+
+export interface SearchQuery {
+  search?: string;
+  locality?: string;
+  propertyType?: string;
+  bhk?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  constructionStatus?: string;
+}
+
+export interface RecentSearch {
+  query: SearchQuery;
+  createdAt: string;
+}
+
+export interface ProfileInsights {
+  profileStrength: number; // 0..100
+  signalCount: number;
+  topLocalities: string[];
+  topTypes: string[];
+  topBhks: string[];
+  budget: { min: number; max: number } | null;
+}
+
+export interface Recommendation {
+  property: Property;
+  score: number;
+  matchScore: number | null; // null when the feed isn't personalised yet
+  reasons: string[];
+}
+
+export interface RecommendationFeed {
+  isPersonalized: boolean;
+  items: Recommendation[];
+  insights: ProfileInsights;
+}
+
+export interface PropertyExplanation {
+  isPersonalized: boolean;
+  matchScore: number | null;
+  reasons: string[];
+}
+
+export interface TrendingProperty extends Property {
+  trending: { viewers: number; score: number };
+}
+
+export interface SimilarProperty extends Property {
+  similarity: number;
+}
+
+export interface SavedProperty extends Property {
+  savedAt: string;
+}
+
+export interface SearchSuggestions {
+  projects: { id: string; name: string; locality: string }[];
+  localities: { name: string; count: number }[];
+  builders: { name: string; count: number }[];
+}
+
+export interface LocalityStat {
+  locality: string;
+  count: number;
+  minPrice: number;
+  maxPrice: number;
+  avgPricePerSqFt: number;
+  coverImageUrl?: string;
+}
+
+// ─── Site visits ─────────────────────────────────────────────────────────────
+
+export type VisitStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'RESCHEDULE_PROPOSED'
+  | 'DECLINED'
+  | 'CANCELLED'
+  | 'COMPLETED';
+
+export type VisitSlot = 'MORNING' | 'AFTERNOON' | 'EVENING';
+
+export const VISIT_SLOTS: { value: VisitSlot; label: string; hint: string }[] = [
+  { value: 'MORNING',   label: 'Morning',   hint: '10:00 AM – 12:00 PM' },
+  { value: 'AFTERNOON', label: 'Afternoon', hint: '12:00 PM – 4:00 PM' },
+  { value: 'EVENING',   label: 'Evening',   hint: '4:00 PM – 7:00 PM' },
+];
+
+export interface SiteVisit {
+  _id: string;
+  status: VisitStatus;
+  visitDate: string;
+  timeSlot: VisitSlot;
+  timeSlotLabel: string;
+  proposedDate?: string;
+  proposedSlot?: VisitSlot;
+  proposedSlotLabel?: string;
+  visitors: number;
+  contactName: string;
+  contactPhone: string;
+  notes?: string;
+  builderNote?: string;
+  respondedAt?: string;
+  createdAt: string;
+  property: {
+    _id: string; projectName: string; title: string; locality: string; city: string;
+    address: string; coverImageUrl?: string;
+  } | null;
+  builder?: { name: string; phone?: string };
+  customer?: { name: string; email?: string };
+}
+
+export interface CreateVisitPayload {
+  propertyId: string;
+  visitDate: string;
+  timeSlot: VisitSlot;
+  visitors: number;
+  contactName: string;
+  contactPhone: string;
+  notes?: string;
+}
+
+export type VisitAction = 'confirm' | 'decline' | 'reschedule' | 'complete';
+
+export interface RespondVisitPayload {
+  action: VisitAction;
+  note?: string;
+  newDate?: string;
+  newSlot?: VisitSlot;
+}
+
+// ─── DSA connection requests (type names kept from the original loan flow) ─────────────────────────────────────────────────────────
+
+export type LoanStatus =
+  | 'SUBMITTED'
+  | 'ASSIGNED'
+  | 'IN_PROGRESS'
+  | 'DOCUMENTS_REQUIRED'
+  | 'COMPLETED'
+  | 'CLOSED'
+  | 'CANCELLED';
+
+export interface LoanRequest {
+  _id: string;
+  status: LoanStatus;
+  contactName: string;
+  contactPhone: string;
+  notes?: string;
+  dsaNote?: string;
+  consentAt: string;
+  assignedAt?: string;
+  statusUpdatedAt: string;
+  createdAt: string;
+  property: {
+    _id: string; projectName: string; title: string; locality: string; city: string;
+    coverImageUrl?: string; minPrice: number; maxPrice: number;
+  } | null;
+  dsa?: { name: string; phone?: string };
+  customer?: { name: string; email?: string };
+}
+
+export interface CreateLoanPayload {
+  propertyId?: string;
+  contactName: string;
+  contactPhone: string;
+  notes?: string;
+  consent: boolean;
+}
+
+export type DsaLeadStatus = 'IN_PROGRESS' | 'DOCUMENTS_REQUIRED' | 'COMPLETED' | 'CLOSED';
+
+// ─── Notifications & dashboard ───────────────────────────────────────────────
+
+export interface AppNotification {
+  _id: string;
+  type: string;
+  title: string;
+  message: string;
+  link?: string;
+  readAt?: string;
+  createdAt: string;
+}
+
+export interface CustomerDashboard {
+  counts: {
+    saved: number;
+    visitsUpcoming: number;
+    visitsTotal: number;
+    loansActive: number;
+    loansTotal: number;
+    unreadNotifications: number;
+  };
+  nextVisit: SiteVisit | null;
+  latestLoan: LoanRequest | null;
+  insights: ProfileInsights;
+  recentViews: Property[];
+  recentSearches: RecentSearch[];
+}

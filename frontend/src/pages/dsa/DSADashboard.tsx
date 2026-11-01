@@ -1,10 +1,19 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/layout/Navbar';
 import { useAuth } from '../../context/AuthContext';
+import { getLeadCountsApi, type LeadCounts } from '../../api/loans.api';
 
 export default function DSADashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [counts, setCounts] = useState<LeadCounts | null>(null);
+
+  useEffect(() => {
+    getLeadCountsApi().then(setCounts).catch(() => { /* stats stay at — */ });
+  }, []);
+
+  const n = (v: number | undefined) => (counts ? String(v ?? 0) : '—');
 
   return (
     <div className="min-h-screen bg-cream-200">
@@ -44,10 +53,10 @@ export default function DSADashboard() {
           <h2 className="section-title mb-4">Your Activity</h2>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Assigned Leads',    value: '0', icon: '📋' },
-              { label: 'Active Leads',      value: '0', icon: '🔄' },
-              { label: 'Completed Leads',   value: '0', icon: '✅' },
-              { label: 'Pending Review',    value: '0', icon: '⏳' },
+              { label: 'Total Leads',       value: n(counts?.total),     icon: '📋' },
+              { label: 'Active Leads',      value: n(counts?.active),    icon: '🔄' },
+              { label: 'Completed Leads',   value: n(counts?.completed), icon: '✅' },
+              { label: 'New (not started)', value: n(counts?.assigned),  icon: '⏳' },
             ].map(({ label, value, icon }) => (
               <div key={label} className="card px-5 py-5">
                 <div className="text-xl mb-2">{icon}</div>
@@ -64,8 +73,10 @@ export default function DSADashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <DSAModule
               icon="📋"
-              title="Loan Leads"
-              description="View and manage your assigned loan assistance leads."
+              title="Customer Leads"
+              description="View and manage customers who asked to connect with you."
+              active
+              onClick={() => navigate('/dsa/leads')}
             />
             <DSAModule
               icon="📁"
@@ -76,6 +87,8 @@ export default function DSADashboard() {
               icon="📊"
               title="Lead Status"
               description="Track the status and progress of each assigned lead."
+              active
+              onClick={() => navigate('/dsa/leads')}
             />
             <DSAModule
               icon="👤"
@@ -88,7 +101,7 @@ export default function DSADashboard() {
         </section>
       </main>
 
-      <DSAMobileNav onProfileClick={() => navigate('/dsa/profile')} />
+      <DSAMobileNav onProfileClick={() => navigate('/dsa/profile')} onLeadsClick={() => navigate('/dsa/leads')} />
     </div>
   );
 }
@@ -125,9 +138,9 @@ function DSAModule({
   );
 }
 
-function DSAMobileNav({ onProfileClick }: { onProfileClick: () => void }) {
+function DSAMobileNav({ onProfileClick, onLeadsClick }: { onProfileClick: () => void; onLeadsClick: () => void }) {
   const items = [
-    { icon: '📋', label: 'Leads', active: true, action: undefined },
+    { icon: '📋', label: 'Leads', active: true, action: onLeadsClick },
     { icon: '📁', label: 'Documents', active: false, action: undefined },
     { icon: '📊', label: 'Status', active: false, action: undefined },
     { icon: '👤', label: 'Profile', active: true, action: onProfileClick },

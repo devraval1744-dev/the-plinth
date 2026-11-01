@@ -386,7 +386,9 @@ export const MISSING_LOCALITY_PROPERTIES: SeedPropertyDef[] = [
   },
 ];
 
-export async function seedMissingDemoProperties(): Promise<{
+export async function seedMissingDemoProperties(
+  defs: SeedPropertyDef[] = MISSING_LOCALITY_PROPERTIES
+): Promise<{
   createdCount: number;
   existingCount: number;
   totalApproved: number;
@@ -409,7 +411,7 @@ export async function seedMissingDemoProperties(): Promise<{
 
   let createdCount = 0;
 
-  for (const def of MISSING_LOCALITY_PROPERTIES) {
+  for (const def of defs) {
     // If this locality already has an approved property, preserve it and do not duplicate
     if (existingLocalities.has(def.locality)) {
       continue;
