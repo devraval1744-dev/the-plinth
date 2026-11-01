@@ -10,7 +10,7 @@ import { env } from '../config/env';
 import { SpatialAnalysis } from '../models/BlueprintAnalysis';
 
 const AI_BASE = env.AI_SERVICE_URL;
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 120_000; // hybrid Gemini pipeline takes ~20-25s per blueprint
 
 export async function callAnalyzeEndpoint(
   fileUrl: string,      // local /uploads/... path relative to server root

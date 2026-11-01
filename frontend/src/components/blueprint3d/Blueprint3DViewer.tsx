@@ -1,260 +1,159 @@
 /**
- * Deterministic 3D floor-plan viewer.
+ * Premium 3D floor-plan viewer.
  *
- * Takes a SpatialAnalysis JSON (produced by the AI service) and renders
- * a Three.js scene via React Three Fiber.  The result is always determined
- * by the structured JSON — never a random AI image.
- *
- * Wall height and thickness are applied as defaults when not available in data.
+ * Takes the SpatialAnalysis JSON produced by the AI service and renders a
+ * furnished, lit, interactive "dollhouse" with React Three Fiber.  The scene
+ * is derived deterministically from the JSON — never from a random AI image.
  */
-import { Suspense, useRef, useState, useEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Html, PerspectiveCamera } from '@react-three/drei';
-import type { SpatialAnalysis, SpatialRoom, SpatialWall } from '../../types';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { ContactShadows, Environment, Lightformer, OrbitControls, PerspectiveCamera } from '@react-three/drei';
+import * as THREE from 'three';
+import type { SpatialAnalysis } from '../../types';
+import { buildPlan } from './plan';
+import { layoutFurniture } from './layout';
+import PremiumScene, { type WallMode } from './PremiumScene';
 
-// ─── Colour map for room types ────────────────────────────────────────────────
+// ─── camera presets ──────────────────────────────────────────────────────────
 
-const ROOM_COLOURS: Record<string, string> = {
-  living_room: '#d4c5a9',
-  dining:      '#c9b99a',
-  bedroom:     '#b8d4c8',
-  kitchen:     '#e8d5c0',
-  bathroom:    '#c5d5e8',
-  utility:     '#d8d8d8',
-  balcony:     '#b8e8b8',
-  corridor:    '#e0ddd5',
-  other:       '#e0e0e0',
-};
+type CamPreset = 'iso' | 'top';
 
-const WALL_HEIGHT = 2.8;    // metres
-const FLOOR_Y     = 0.001;  // just above zero to avoid z-fighting
-
-// ─── Coordinate helpers ───────────────────────────────────────────────────────
-
-// Blueprint coords: x → Three.js x, y → Three.js -z (so +y in blueprint = "into screen")
-function bx(v: number, cx: number) { return v - cx; }
-function bz(v: number, cz: number) { return -(v - cz); }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function Floor({ w, h }: { w: number; h: number }) {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <planeGeometry args={[w, h]} />
-      <meshStandardMaterial color="#f5f0e8" />
-    </mesh>
-  );
-}
-
-function RoomMesh({
-  room,
-  cx,
-  cz,
-}: {
-  room: SpatialRoom;
-  cx: number;
-  cz: number;
-}) {
-  const color = ROOM_COLOURS[room.type] ?? ROOM_COLOURS.other;
-  const px = bx(room.x + room.width / 2, cx);
-  const pz = bz(room.y + room.height / 2, cz);
-  const label = room.name;
-
-  return (
-    <group position={[px, FLOOR_Y, pz]}>
-      {/* Tinted floor panel */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[room.width - 0.05, room.height - 0.05]} />
-        <meshStandardMaterial color={color} transparent opacity={0.85} />
-      </mesh>
-      {/* Room label */}
-      <Html center distanceFactor={10} style={{ pointerEvents: 'none' }}>
-        <div style={{
-          background: 'rgba(255,255,255,0.75)',
-          borderRadius: 4,
-          padding: '2px 6px',
-          fontSize: 11,
-          fontFamily: 'Inter, sans-serif',
-          color: '#1e3a8a',
-          fontWeight: 600,
-          whiteSpace: 'nowrap',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-        }}>
-          {label}
-        </div>
-      </Html>
-    </group>
-  );
-}
-
-function WallMesh({ wall, cx, cz }: { wall: SpatialWall; cx: number; cz: number }) {
-  const dx = wall.end_x - wall.start_x;
-  const dy = wall.end_y - wall.start_y;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  if (length < 0.05) return null;
-
-  const midX = bx((wall.start_x + wall.end_x) / 2, cx);
-  const midZ = bz((wall.start_y + wall.end_y) / 2, cz);
-
-  // Rotation angle: blueprint y → -z, so atan2 is negated
-  const angle = Math.atan2(-dy, dx);
-  const thickness = wall.thickness > 0 ? wall.thickness : 0.15;
-
-  return (
-    <mesh position={[midX, WALL_HEIGHT / 2, midZ]} rotation={[0, angle, 0]} castShadow>
-      <boxGeometry args={[length, WALL_HEIGHT, thickness]} />
-      <meshStandardMaterial color="#e2e8f0" roughness={0.65} metalness={0.05} />
-    </mesh>
-  );
-}
-
-// ─── Scene ────────────────────────────────────────────────────────────────────
-
-function Scene({ data }: { data: SpatialAnalysis }) {
-  const cx = data.canvas_width  / 2;
-  const cz = data.canvas_height / 2;
-
-  return (
-    <>
-      {/* Lighting */}
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow />
-      <directionalLight position={[-5, 10, -5]} intensity={0.3} />
-
-      {/* Floor */}
-      <Floor w={data.canvas_width} h={data.canvas_height} />
-
-      {/* Room panels */}
-      {data.rooms
-        .filter((r) => r.type !== 'balcony')
-        .map((r) => <RoomMesh key={r.id} room={r} cx={cx} cz={cz} />)}
-
-      {/* Balcony panels (distinct colour) */}
-      {data.balconies.map((b) => (
-        <group key={b.id} position={[bx(b.x + b.width / 2, cx), FLOOR_Y, bz(b.y + b.height / 2, cz)]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[b.width - 0.05, Math.max(b.height - 0.05, 0.3)]} />
-            <meshStandardMaterial color="#b8e8b8" transparent opacity={0.7} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* Walls */}
-      {data.walls.map((w) => <WallMesh key={w.id} wall={w} cx={cx} cz={cz} />)}
-    </>
-  );
-}
-
-// ─── GLB Model Loader with Error Boundary & Fallback ─────────────────────────
-
-function GLBModel({ url, onError }: { url: string; onError: () => void }) {
-  const [scene, setScene] = useState<any>(null);
+function CameraRig({
+  preset, nonce, center, span,
+}: { preset: CamPreset; nonce: number; center: THREE.Vector3; span: number }) {
+  const { camera, controls } = useThree();
+  const goal = useRef<{ pos: THREE.Vector3; target: THREE.Vector3 } | null>(null);
 
   useEffect(() => {
-    let active = true;
-    import('three/examples/jsm/loaders/GLTFLoader.js')
-      .then(({ GLTFLoader }) => {
-        const loader = new GLTFLoader();
-        loader.load(
-          url,
-          (gltf) => {
-            if (active) {
-              // Enable shadows on all loaded meshes
-              gltf.scene.traverse((child: any) => {
-                if (child.isMesh) {
-                  child.castShadow = true;
-                  child.receiveShadow = true;
-                }
-              });
-              setScene(gltf.scene);
-            }
-          },
-          undefined,
-          (err) => {
-            console.warn('[3D Viewer] GLB failed to load, falling back to procedural scene:', err);
-            if (active) onError();
-          }
-        );
-      })
-      .catch((err) => {
-        console.warn('[3D Viewer] Could not load GLTFLoader:', err);
-        if (active) onError();
-      });
+    const off = preset === 'top'
+      ? new THREE.Vector3(0, span * 2.0, span * 0.01)
+      : new THREE.Vector3(span * 0.26, span * 1.3, span * 1.2);
+    goal.current = { pos: center.clone().add(off), target: center.clone() };
+  }, [preset, nonce, center, span]);
 
-    return () => { active = false; };
-  }, [url, onError]);
-
-  if (!scene) return null;
-  return <primitive object={scene} />;
+  useFrame((_, dt) => {
+    const g = goal.current;
+    const c = controls as unknown as { target: THREE.Vector3; update: () => void } | null;
+    if (!g || !c) return;
+    const k = 1 - Math.exp(-5 * dt);
+    camera.position.lerp(g.pos, k);
+    c.target.lerp(g.target, k);
+    c.update();
+    if (camera.position.distanceTo(g.pos) < 0.02 && c.target.distanceTo(g.target) < 0.02) goal.current = null;
+  });
+  return null;
 }
 
-// ─── Camera reset hook ────────────────────────────────────────────────────────
+// ─── UI bits ─────────────────────────────────────────────────────────────────
 
-function ResetButton({ controlsRef }: { controlsRef: React.RefObject<any> }) {
+function Seg<T extends string>({
+  value, options, onChange,
+}: { value: T; options: { id: T; label: string; title?: string }[]; onChange: (v: T) => void }) {
   return (
-    <button
-      onClick={() => controlsRef.current?.reset()}
-      className="btn btn-secondary text-xs px-2 py-1"
-      title="Reset camera"
-    >↺ Reset</button>
+    <div className="inline-flex rounded-lg border border-navy-200 bg-white p-0.5 shadow-sm">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          title={o.title}
+          onClick={() => onChange(o.id)}
+          className={
+            'px-2.5 py-1 text-xs font-medium rounded-md transition-colors ' +
+            (value === o.id ? 'bg-navy-700 text-white shadow-sm' : 'text-navy-600 hover:bg-navy-50')
+          }
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
-// ─── Public viewer component ──────────────────────────────────────────────────
+function Toggle({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={
+        'px-2.5 py-1 text-xs font-medium rounded-lg border shadow-sm transition-colors ' +
+        (on ? 'bg-navy-700 text-white border-navy-700' : 'bg-white text-navy-600 border-navy-200 hover:bg-navy-50')
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+// ─── public viewer component ─────────────────────────────────────────────────
 
 interface Props {
   data:         SpatialAnalysis;
   isDemo?:      boolean;
   provider?:    string;
   height?:      number;
-  propertyId?:  string;
-  blueprintId?: string;
+  propertyId?:  string;   // kept for API compatibility
+  blueprintId?: string;   // kept for API compatibility
 }
 
 export default function Blueprint3DViewer({
   data,
   isDemo = false,
   provider = 'demo',
-  height = 500,
-  propertyId,
-  blueprintId,
+  height = 580,
 }: Props) {
-  const controlsRef = useRef<any>(null);
-  const camDistance = Math.max(data.canvas_width, data.canvas_height) * 1.2;
+  const [mode, setMode] = useState<WallMode>('dollhouse');
+  const [furnished, setFurnished] = useState(true);
+  const [labels, setLabels] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [preset, setPreset] = useState<CamPreset>('iso');
+  const [nonce, setNonce] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Determine authorized GLB URL if available
-  const hasGlbCandidate = Boolean(data.glb_ready || data.glb_filename);
-  const glbUrl = (hasGlbCandidate && propertyId && blueprintId)
-    ? `/api/properties/${propertyId}/blueprints/${blueprintId}/3d/model.glb`
-    : null;
+  const built = useMemo(() => {
+    try {
+      const plan = buildPlan(data);
+      return { plan, furniture: layoutFurniture(plan), error: null as string | null };
+    } catch (e) {
+      console.error('[3D Viewer] could not build plan', e);
+      return { plan: null, furniture: [], error: 'The blueprint data could not be converted into a 3D scene.' };
+    }
+  }, [data]);
 
-  const [useGlb, setUseGlb] = useState<boolean>(Boolean(glbUrl));
-  const [glbFailed, setGlbFailed] = useState<boolean>(false);
+  const { plan, furniture } = built;
+  const span = plan ? Math.max(plan.bounds.x1 - plan.bounds.x0, plan.bounds.z1 - plan.bounds.z0, 4) : 10;
+  const center = useMemo(
+    () => (plan
+      ? new THREE.Vector3((plan.bounds.x0 + plan.bounds.x1) / 2, 0, (plan.bounds.z0 + plan.bounds.z1) / 2)
+      : new THREE.Vector3()),
+    [plan],
+  );
 
   useEffect(() => {
-    if (glbUrl) {
-      setUseGlb(true);
-      setGlbFailed(false);
-    }
-  }, [glbUrl]);
+    const onFs = () => setFullscreen(document.fullscreenElement === wrapRef.current);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  const toggleFullscreen = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen?.();
+  };
 
   const isImageAware    = provider.includes('image_aware') && !provider.includes('fallback');
   const isFallback      = provider.includes('fallback');
-  const disclosureLabel = isImageAware
-    ? '⚠ Image-Aware Demo Analysis'
-    : '⚠ Demo AI Analysis';
+  const disclosureLabel = isImageAware ? '⚠ Image-Aware Demo Analysis' : '⚠ Demo AI Analysis';
   const disclosureMsg   = isImageAware
     ? 'Layout derived from the actual uploaded blueprint image using approximate image analysis. Not real AI vision — spatial positions are approximate.'
     : 'This 3D view uses a generic layout template. Not derived from the actual blueprint image.';
 
-  const handleGlbError = () => {
-    setGlbFailed(true);
-    setUseGlb(false);
-  };
+  const startPos = center.clone().add(new THREE.Vector3(span * 0.26, span * 1.3, span * 1.2));
 
   return (
     <div className="space-y-2">
-      {/* Demo/provider label */}
       {isDemo && (
         <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
           <span className="text-xs font-semibold text-amber-800 shrink-0">{disclosureLabel}</span>
@@ -267,67 +166,119 @@ export default function Blueprint3DViewer({
         </div>
       )}
 
-      {/* Controls bar */}
+      {/* controls bar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-navy-500">
-          Drag to rotate · Scroll to zoom · Right-drag to pan
-        </p>
-        <div className="flex items-center gap-2">
-          {/* View mode toggle between High-Fidelity GLB and Procedural Mesh */}
-          {glbUrl && !glbFailed && (
-            <button
-              onClick={() => setUseGlb((prev) => !prev)}
-              className="btn btn-secondary text-xs px-2.5 py-1"
-              title="Toggle between GLB mesh and procedural blueprint geometry"
-            >
-              {useGlb ? 'Show Procedural Layout' : 'Show 3D GLB Model'}
-            </button>
-          )}
-          <ResetButton controlsRef={controlsRef} />
+        <p className="text-xs text-navy-500">Drag to rotate · Scroll to zoom · Right-drag to pan</p>
+        <div className="flex items-center flex-wrap gap-2">
+          <Seg<WallMode>
+            value={mode}
+            onChange={setMode}
+            options={[
+              { id: 'dollhouse', label: 'Dollhouse', title: 'Walls facing the camera fold away automatically' },
+              { id: 'cutaway',   label: 'Cutaway',   title: 'Low walls — see every room at once' },
+              { id: 'full',      label: 'Full walls', title: 'Walls at full height' },
+            ]}
+          />
+          <Seg<CamPreset>
+            value={preset}
+            onChange={(p) => { setPreset(p); setNonce((n) => n + 1); }}
+            options={[{ id: 'iso', label: '3D' }, { id: 'top', label: 'Top' }]}
+          />
+          <Toggle on={furnished} label="Furniture" onClick={() => setFurnished((v) => !v)} />
+          <Toggle on={labels} label="Labels" onClick={() => setLabels((v) => !v)} />
+          <Toggle on={autoRotate} label="Orbit" onClick={() => setAutoRotate((v) => !v)} />
+          <button
+            type="button"
+            onClick={() => { setPreset('iso'); setNonce((n) => n + 1); }}
+            className="btn btn-secondary text-xs px-2.5 py-1"
+            title="Reset camera"
+          >
+            ↺ Reset
+          </button>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="btn btn-secondary text-xs px-2.5 py-1"
+            title="Toggle fullscreen"
+          >
+            {fullscreen ? '✕ Exit' : '⛶ Fullscreen'}
+          </button>
         </div>
       </div>
 
       {/* 3D canvas */}
       <div
-        style={{ height }}
-        className="rounded-xl overflow-hidden border border-navy-200 bg-navy-50"
+        ref={wrapRef}
+        style={{
+          height: fullscreen ? '100vh' : height,
+          background: 'radial-gradient(ellipse at 50% 35%, #fbf8f1 0%, #ece7dc 55%, #d9d3c5 100%)',
+        }}
+        className="relative rounded-xl overflow-hidden border border-navy-200"
       >
-        <Canvas shadows gl={{ antialias: true }}>
-          <PerspectiveCamera
-            makeDefault
-            position={[0, camDistance * 0.8, camDistance * 0.5]}
-            fov={45}
-          />
-          <OrbitControls
-            ref={controlsRef}
-            enableDamping
-            dampingFactor={0.08}
-            minDistance={2}
-            maxDistance={camDistance * 2.5}
-            maxPolarAngle={Math.PI / 2.05}
-          />
-          <ambientLight intensity={0.7} />
-          <directionalLight position={[10, 15, 10]} intensity={0.8} castShadow />
-          <directionalLight position={[-5, 10, -5]} intensity={0.3} />
+        {!plan ? (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-navy-500">{built.error}</div>
+        ) : (
+          <Canvas
+            shadows="soft"
+            dpr={[1, 2]}
+            gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 0.92 }}
+          >
+            <PerspectiveCamera makeDefault position={startPos.toArray()} fov={34} near={0.1} far={400} />
+            <OrbitControls
+              makeDefault
+              target={center.toArray()}
+              enableDamping
+              dampingFactor={0.08}
+              minDistance={2.5}
+              maxDistance={span * 3}
+              maxPolarAngle={Math.PI / 2.08}
+              autoRotate={autoRotate}
+              autoRotateSpeed={0.8}
+            />
+            <CameraRig preset={preset} nonce={nonce} center={center} span={span} />
 
-          <Suspense fallback={null}>
-            {useGlb && glbUrl ? (
-              <GLBModel url={glbUrl} onError={handleGlbError} />
-            ) : (
-              <Scene data={data} />
-            )}
-          </Suspense>
-        </Canvas>
+            {/* lighting */}
+            <hemisphereLight args={['#fff6e6', '#a99f8f', 0.6]} />
+            <directionalLight
+              castShadow
+              position={[center.x + span * 0.55, span * 1.25, center.z + span * 0.5]}
+              intensity={2.1}
+              color="#fff1dc"
+              shadow-mapSize={[2048, 2048]}
+              shadow-bias={-0.0004}
+              shadow-normalBias={0.035}
+              shadow-radius={4}
+            >
+              <orthographicCamera attach="shadow-camera" args={[-span * 0.85, span * 0.85, span * 0.85, -span * 0.85, 0.5, span * 5]} />
+            </directionalLight>
+            <directionalLight position={[center.x - span * 0.6, span * 0.8, center.z - span * 0.4]} intensity={0.55} color="#cfe0ff" />
+
+            <Suspense fallback={null}>
+              <Environment resolution={256}>
+                <Lightformer form="rect" intensity={2.2} position={[0, 6, 0]} rotation-x={Math.PI / 2} scale={[14, 14, 1]} color="#fff8ec" />
+                <Lightformer form="rect" intensity={1.4} position={[-6, 3, 2]} rotation-y={Math.PI / 2} scale={[8, 4, 1]} color="#dfeaff" />
+                <Lightformer form="rect" intensity={1.0} position={[6, 3, -2]} rotation-y={-Math.PI / 2} scale={[8, 4, 1]} color="#ffe9cc" />
+              </Environment>
+              <PremiumScene plan={plan} furniture={furniture} mode={mode} showFurniture={furnished} showLabels={labels} />
+              <ContactShadows
+                position={[center.x, -0.52, center.z]}
+                scale={span * 2.2}
+                opacity={0.42}
+                blur={2.8}
+                far={2.2}
+                resolution={512}
+              />
+            </Suspense>
+          </Canvas>
+        )}
       </div>
 
-      {/* Disclosures */}
+      {/* disclosures */}
       <div className="space-y-1">
+        <p className="text-xs text-navy-400">AI-generated 3D Visualization — Informational and Non-binding.</p>
         <p className="text-xs text-navy-400">
-          AI-generated 3D Visualization — Informational and Non-binding.
-        </p>
-        <p className="text-xs text-navy-400">
-          AI blueprint insights are not professional architectural, engineering or legal certification.
-          The original builder-uploaded blueprint is the primary source.
+          Furniture, finishes and fixtures are illustrative placeholders. AI blueprint insights are not professional
+          architectural, engineering or legal certification. The original builder-uploaded blueprint is the primary source.
         </p>
       </div>
     </div>
